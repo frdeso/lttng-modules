@@ -410,6 +410,7 @@ int lttng_event_enable(struct lttng_event *event)
 		break;
 	case LTTNG_KERNEL_KPROBE:
 	case LTTNG_KERNEL_FUNCTION:
+	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_NOOP:
 		ACCESS_ONCE(event->enabled) = 1;
 		break;
@@ -591,6 +592,7 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 		event_name = event_desc->name;
 		break;
 	case LTTNG_KERNEL_KPROBE:
+	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_NOOP:
@@ -754,6 +756,17 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 			goto register_error;
 		}
 		break;
+	case LTTNG_KERNEL_UPROBE:
+
+		ret = lttng_uprobes_register(event_param->name,
+				event_param->u.uprobe.path,
+				event_param->u.uprobe.offset,
+				event);
+		if (ret)
+			goto register_error;
+		ret = try_module_get(event->desc->owner);
+		WARN_ON_ONCE(!ret);
+		break;
 	default:
 		WARN_ON_ONCE(1);
 		ret = -EINVAL;
@@ -865,6 +878,10 @@ int _lttng_event_unregister(struct lttng_event *event)
 	case LTTNG_KERNEL_NOOP:
 		ret = 0;
 		break;
+	case LTTNG_KERNEL_UPROBE:
+		lttng_uprobes_unregister(event);
+		ret = 0;
+		break;
 	default:
 		WARN_ON_ONCE(1);
 	}
@@ -897,6 +914,10 @@ void _lttng_event_destroy(struct lttng_event *event)
 		break;
 	case LTTNG_KERNEL_NOOP:
 	case LTTNG_KERNEL_SYSCALL:
+		break;
+	case LTTNG_KERNEL_UPROBE:
+		module_put(event->desc->owner);
+		lttng_uprobes_destroy_private(event);
 		break;
 	default:
 		WARN_ON_ONCE(1);

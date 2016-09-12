@@ -1194,8 +1194,9 @@ old_event_end:
 
 		if (copy_from_user(&uevent_param,
 				(struct lttng_kernel_event __user *) arg,
-				sizeof(uevent_param)))
+				sizeof(uevent_param))) {
 			return -EFAULT;
+		}
 		return lttng_abi_create_event(file, &uevent_param);
 	}
 	case LTTNG_KERNEL_OLD_CONTEXT:
@@ -1254,8 +1255,9 @@ old_ctx_end:
 
 		if (copy_from_user(&ucontext_param,
 				(struct lttng_kernel_context __user *) arg,
-				sizeof(ucontext_param)))
+				sizeof(ucontext_param))) {
 			return -EFAULT;
+		}
 		return lttng_abi_add_context(file,
 				&ucontext_param,
 				&channel->ctx, channel->session);
@@ -1272,7 +1274,6 @@ old_ctx_end:
 	default:
 		return -ENOIOCTLCMD;
 	}
-
 }
 
 /**
