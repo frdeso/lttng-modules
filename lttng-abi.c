@@ -1272,7 +1272,6 @@ old_ctx_end:
 	default:
 		return -ENOIOCTLCMD;
 	}
-
 }
 
 /**
