@@ -589,6 +589,7 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 		event_name = event_desc->name;
 		break;
 	case LTTNG_KERNEL_KPROBE:
+	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_NOOP:
@@ -753,6 +754,8 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 		}
 		break;
 	case LTTNG_KERNEL_UPROBE:
+
+		printk(KERN_WARNING "Calling uprobes register\n");
 		ret = lttng_uprobes_register(event_param->name,
 				event_param->u.uprobe.path,
 				event_param->u.uprobe.offset,

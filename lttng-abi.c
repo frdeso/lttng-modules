@@ -1080,6 +1080,9 @@ int lttng_abi_create_event(struct file *channel_file,
 		 * We tolerate no failure path after event creation. It
 		 * will stay invariant for the rest of the session.
 		 */
+		event_param->u.uprobe.path[19 - 1] = '\0';
+		printk(KERN_WARNING "frdeso11 instrumentation:%d\n", event_param->instrumentation);
+		printk(KERN_WARNING "frdeso12 u.path:%s\n", event_param->u.uprobe.path);
 		event = lttng_event_create(channel, event_param,
 				NULL, NULL,
 				event_param->instrumentation);
@@ -1131,6 +1134,7 @@ long lttng_channel_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct lttng_channel *channel = file->private_data;
 
+	printk(KERN_DEBUG"%s, cmd: %d\n", __func__, cmd);
 	switch (cmd) {
 	case LTTNG_KERNEL_OLD_STREAM:
 	case LTTNG_KERNEL_STREAM:
@@ -1206,10 +1210,13 @@ old_event_end:
 	{
 		struct lttng_kernel_event uevent_param;
 
+		printk(KERN_WARNING "frdeso132"); 
 		if (copy_from_user(&uevent_param,
 				(struct lttng_kernel_event __user *) arg,
-				sizeof(uevent_param)))
+				sizeof(uevent_param))){
+			printk(KERN_WARNING "frdeso1324"); 
 			return -EFAULT;
+		}
 		return lttng_abi_create_event(file, &uevent_param);
 	}
 	case LTTNG_KERNEL_OLD_CONTEXT:

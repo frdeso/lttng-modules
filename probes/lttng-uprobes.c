@@ -92,14 +92,19 @@ int lttng_uprobes_register(const char *name,
 {
 	int ret;
 
+	printk(KERN_WARNING "A offset:%d\n", offset);
 
-	if (!access_ok(VERIFY_READ, path_name, 1))
+	if (!access_ok(VERIFY_READ, path_name, 1)){
+		printk(KERN_WARNING "AA\n");
 		return -EFAULT;
+	}
 
+	printk(KERN_WARNING "AAA\n");
 	if (path_name[0] == '\0')
 		path_name = NULL;
 
 	ret = lttng_create_uprobe_event(name, event);
+	printk(KERN_WARNING "B\n");
 	if (ret)
 		goto error;
 	memset(&event->u.uprobe.up_consumer, 0,
@@ -113,11 +118,12 @@ int lttng_uprobes_register(const char *name,
 
 		event->u.uprobe.inode = igrab(path.dentry->d_inode);
 	}
+	printk(KERN_WARNING "C\n");
 	event->u.uprobe.offset = offset;
 
 	 /* Ensure the memory we just allocated don't trigger page faults. */
 	wrapper_vmalloc_sync_all();
-
+	printk(KERN_DEBUG"Registering probe on inode %d and offset %d\n", event->u.uprobe.inode, event->u.uprobe.offset);
 	ret = wrapper_uprobe_register(event->u.uprobe.inode,
 			event->u.uprobe.offset,
 			&event->u.uprobe.up_consumer);
