@@ -29,6 +29,7 @@
 #include "../lttng-events.h"
 #include "../wrapper/ringbuffer/frontend_types.h"
 #include "../wrapper/vmalloc.h"
+#include <wrapper/irqflags.h>
 #include "../lttng-tracer.h"
 
 static
@@ -36,10 +37,15 @@ int lttng_uprobes_handler_pre(struct uprobe_consumer *uc, struct pt_regs *regs)
 {
 	struct lttng_event *event =
 		container_of(uc, struct lttng_event, u.uprobe.up_consumer);
+	struct lttng_probe_ctx lttng_probe_ctx = {
+		.event = event,
+		.interruptible = !lttng_regs_irqs_disabled(regs),
+	};
 	struct lttng_channel *chan = event->chan;
 	struct lib_ring_buffer_ctx ctx;
 	int ret;
 
+	printk(KERN_WARNING "%s-1 %u\n", __func__, event->id);
 	if (unlikely(!ACCESS_ONCE(chan->session->active)))
 		return 0;
 	if (unlikely(!ACCESS_ONCE(chan->enabled)))
@@ -47,13 +53,23 @@ int lttng_uprobes_handler_pre(struct uprobe_consumer *uc, struct pt_regs *regs)
 	if (unlikely(!ACCESS_ONCE(event->enabled)))
 		return 0;
 
-	lib_ring_buffer_ctx_init(&ctx, chan->chan, event, 0,
-				 0, -1);
+	struct {
+		int a;
+	 } payload;
+
+	printk(KERN_WARNING "%s-2\n", __func__);
+	lib_ring_buffer_ctx_init(&ctx, chan->chan, &lttng_probe_ctx, sizeof(payload),
+			lttng_alignof(payload), -1);
+
+	printk(KERN_WARNING "%s-3\n", __func__);
 	ret = chan->ops->event_reserve(&ctx, event->id);
+	printk(KERN_WARNING "%s-4\n", __func__);
 	if (ret < 0)
 		return 0;
-	lib_ring_buffer_align_ctx(&ctx, 0);
-	chan->ops->event_write(&ctx, 0, 0);
+	payload.a = 1337;
+	printk(KERN_WARNING "%s-5\n", __func__);
+	lib_ring_buffer_align_ctx(&ctx, lttng_alignof(payload));
+	chan->ops->event_write(&ctx, &payload, sizeof(payload));
 	chan->ops->event_commit(&ctx);
 	return 0;
 }
@@ -66,6 +82,7 @@ int lttng_create_uprobe_event(const char *name, struct lttng_event *event)
 {
 	struct lttng_event_desc *desc;
 	int ret;
+	printk(KERN_WARNING "%s\n", __func__);
 
 	desc = kzalloc(sizeof(*event->desc), GFP_KERNEL);
 	if (!desc)
@@ -86,18 +103,20 @@ error_str:
 }
 
 int lttng_uprobes_register(const char *name,
-			   const char __user *path_name,
+			   const char *path_name,
 			   uint64_t offset,
 			   struct lttng_event *event)
 {
 	int ret;
 
 	printk(KERN_WARNING "A offset:%d\n", offset);
+	printk(KERN_WARNING "A name:%s\n",name);
+	printk(KERN_WARNING "A path:%s\n",path_name);
 
-	if (!access_ok(VERIFY_READ, path_name, 1)){
-		printk(KERN_WARNING "AA\n");
-		return -EFAULT;
-	}
+//	if (!access_ok(VERIFY_READ, path_name, 1)){
+//		printk(KERN_WARNING "AA\n");
+//		return -EFAULT;
+//	}
 
 	printk(KERN_WARNING "AAA\n");
 	if (path_name[0] == '\0')
@@ -123,7 +142,7 @@ int lttng_uprobes_register(const char *name,
 
 	 /* Ensure the memory we just allocated don't trigger page faults. */
 	wrapper_vmalloc_sync_all();
-	printk(KERN_DEBUG"Registering probe on inode %d and offset %d\n", event->u.uprobe.inode, event->u.uprobe.offset);
+	printk(KERN_DEBUG"Registering probe on inode %llu and offset %llu\n", event->u.uprobe.inode, event->u.uprobe.offset);
 	ret = wrapper_uprobe_register(event->u.uprobe.inode,
 			event->u.uprobe.offset,
 			&event->u.uprobe.up_consumer);
@@ -132,6 +151,7 @@ int lttng_uprobes_register(const char *name,
 	return 0;
 
 register_error:
+	printk(KERN_DEBUG"Register error\n");
 	iput(event->u.uprobe.inode);
 path_error:
 	kfree(event->desc->name);
@@ -143,6 +163,7 @@ EXPORT_SYMBOL_GPL(lttng_uprobes_register);
 
 void lttng_uprobes_unregister(struct lttng_event *event)
 {
+	printk(KERN_WARNING "%s\n", __func__);
 	wrapper_uprobe_unregister(event->u.uprobe.inode,
 			event->u.uprobe.offset,
 			&event->u.uprobe.up_consumer);
@@ -151,6 +172,7 @@ EXPORT_SYMBOL_GPL(lttng_uprobes_unregister);
 
 void lttng_uprobes_destroy_private(struct lttng_event *event)
 {
+	printk(KERN_WARNING "%s\n", __func__);
 	iput(event->u.uprobe.inode);
 	kfree(event->desc->name);
 	kfree(event->desc);

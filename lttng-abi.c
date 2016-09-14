@@ -1055,6 +1055,7 @@ int lttng_abi_create_event(struct file *channel_file,
 		ret = PTR_ERR(event_file);
 		goto file_error;
 	}
+	printk(KERN_WARNING "frdeso1337"); 
 	/* The event holds a reference on the channel */
 	if (atomic_long_add_unless(&channel_file->f_count,
 		1, INT_MAX) == INT_MAX) {
@@ -1080,7 +1081,7 @@ int lttng_abi_create_event(struct file *channel_file,
 		 * We tolerate no failure path after event creation. It
 		 * will stay invariant for the rest of the session.
 		 */
-		event_param->u.uprobe.path[19 - 1] = '\0';
+		printk(KERN_WARNING "frdeso13371337") ;
 		printk(KERN_WARNING "frdeso11 instrumentation:%d\n", event_param->instrumentation);
 		printk(KERN_WARNING "frdeso12 u.path:%s\n", event_param->u.uprobe.path);
 		event = lttng_event_create(channel, event_param,
@@ -1211,12 +1212,15 @@ old_event_end:
 		struct lttng_kernel_event uevent_param;
 
 		printk(KERN_WARNING "frdeso132"); 
+		printk(KERN_WARNING "frdeso132i: %s\n", ((struct lttng_kernel_event __user *) arg)->name);
+		printk(KERN_WARNING "frdeso132i: %s\n", ((struct lttng_kernel_event __user *) arg)->u.uprobe);
 		if (copy_from_user(&uevent_param,
 				(struct lttng_kernel_event __user *) arg,
 				sizeof(uevent_param))){
 			printk(KERN_WARNING "frdeso1324"); 
 			return -EFAULT;
 		}
+		printk(KERN_WARNING "frdeso331324"); 
 		return lttng_abi_create_event(file, &uevent_param);
 	}
 	case LTTNG_KERNEL_OLD_CONTEXT:
@@ -1275,8 +1279,10 @@ old_ctx_end:
 
 		if (copy_from_user(&ucontext_param,
 				(struct lttng_kernel_context __user *) arg,
-				sizeof(ucontext_param)))
+				sizeof(ucontext_param))){
+			printk(KERN_WARNING "frdeso132466"); 
 			return -EFAULT;
+		}
 		return lttng_abi_add_context(file,
 				&ucontext_param,
 				&channel->ctx, channel->session);
@@ -1293,6 +1299,8 @@ old_ctx_end:
 	default:
 		return -ENOIOCTLCMD;
 	}
+	printk(KERN_WARNING "frdeso12222466"); 
+
 
 }
 
