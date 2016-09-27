@@ -81,6 +81,7 @@ static
 int lttng_create_uprobe_event(const char *name, struct lttng_event *event)
 {
 	struct lttng_event_desc *desc;
+	struct lttng_event_field *fields;
 	int ret;
 	printk(KERN_WARNING "%s\n", __func__);
 
@@ -92,11 +93,31 @@ int lttng_create_uprobe_event(const char *name, struct lttng_event *event)
 		ret = -ENOMEM;
 		goto error_str;
 	}
+
+	desc->nr_fields = 1;
+	desc->fields = fields = 
+		kzalloc(1 * sizeof(struct lttng_event_field), GFP_KERNEL);
+
+	if (!desc->fields) {
+		ret = -ENOMEM;
+		goto error_fields;
+	}
+	fields[0].name = "a";
+	fields[0].type.atype = atype_integer;
+	fields[0].type.u.basic.integer.size = sizeof(int) * CHAR_BIT;
+	fields[0].type.u.basic.integer.alignment = lttng_alignof(int) * CHAR_BIT;
+	fields[0].type.u.basic.integer.signedness = lttng_is_signed_type(int);
+	fields[0].type.u.basic.integer.reverse_byte_order = 0;
+	fields[0].type.u.basic.integer.base = 16;
+	fields[0].type.u.basic.integer.encoding = lttng_encode_none;
+
 	desc->owner = THIS_MODULE;
 	event->desc = desc;
 
 	return 0;
 
+error_fields:
+	kfree(desc->name);
 error_str:
 	kfree(desc);
 	return ret;
