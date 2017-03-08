@@ -34,9 +34,17 @@
  *
  * Return 1 if reference is taken, 0 otherwise (overflow).
  */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0))
+static inline int lttng_kref_get(struct kref *kref)
+{
+	kref_get(kref);
+	return 1;
+}
+#else /* #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)) */
 static inline int lttng_kref_get(struct kref *kref)
 {
 	return atomic_add_unless(&kref->refcount, 1, INT_MAX);
 }
+#endif /* #else #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4,11,0)) */
 
 #endif /* _LTTNG_WRAPPER_KREF_H */
