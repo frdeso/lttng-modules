@@ -96,7 +96,7 @@ int wrapper_lttng_fixup_sig(struct module *mod)
 	 * This is for module.c confusing force loaded modules with
 	 * unsigned modules.
 	 */
-	if (!THIS_MODULE->sig_ok &&
+	if (THIS_MODULE && !THIS_MODULE->sig_ok &&
 			THIS_MODULE->taints & (1U << TAINT_FORCED_MODULE)) {
 		THIS_MODULE->taints &= ~(1U << TAINT_FORCED_MODULE);
 		ret = wrapper_tracepoint_module_notify(NULL,
