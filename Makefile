@@ -31,7 +31,7 @@ ifneq ($(KERNELRELEASE),)
 
   include $(TOP_LTTNG_MODULES_DIR)/Makefile.ABI.workarounds
 
-  ccflags-y += -I$(TOP_LTTNG_MODULES_DIR)
+  ccflags-y += -I$(TOP_LTTNG_MODULES_DIR) -g
 
   obj-$(CONFIG_LTTNG) += lttng-ring-buffer-client-discard.o
   obj-$(CONFIG_LTTNG) += lttng-ring-buffer-client-overwrite.o
