@@ -606,12 +606,10 @@ int lttng_event_reserve(struct lib_ring_buffer_ctx *ctx,
 	int ret, cpu;
 
 	cpu = lib_ring_buffer_get_cpu(&client_config);
-	printk(KERN_WARNING "%s-1\n", __func__);
 	if (cpu < 0)
 		return -EPERM;
 	ctx->cpu = cpu;
 
-	printk(KERN_WARNING "%s-2\n", __func__);
 	switch (lttng_chan->header_type) {
 	case 1:	/* compact */
 		if (event_id > 30)
@@ -624,14 +622,11 @@ int lttng_event_reserve(struct lib_ring_buffer_ctx *ctx,
 	default:
 		WARN_ON_ONCE(1);
 	}
-	printk(KERN_WARNING "%s-3 config: %p ctx.buf:%p\n", __func__, &client_config, ctx->buf);
 
 	ret = lib_ring_buffer_reserve(&client_config, ctx);
-	printk(KERN_WARNING "%s-4\n", __func__);
 	if (ret)
 		goto put;
 	lttng_write_event_header(&client_config, ctx, event_id);
-	printk(KERN_WARNING "%s-5\n", __func__);
 	return 0;
 put:
 	lib_ring_buffer_put_cpu(&client_config);

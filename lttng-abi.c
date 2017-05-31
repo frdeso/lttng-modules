@@ -1055,7 +1055,6 @@ int lttng_abi_create_event(struct file *channel_file,
 		ret = PTR_ERR(event_file);
 		goto file_error;
 	}
-	printk(KERN_WARNING "frdeso1337"); 
 	/* The event holds a reference on the channel */
 	if (atomic_long_add_unless(&channel_file->f_count,
 		1, INT_MAX) == INT_MAX) {
@@ -1081,9 +1080,6 @@ int lttng_abi_create_event(struct file *channel_file,
 		 * We tolerate no failure path after event creation. It
 		 * will stay invariant for the rest of the session.
 		 */
-		printk(KERN_WARNING "frdeso13371337") ;
-		printk(KERN_WARNING "frdeso11 instrumentation:%d\n", event_param->instrumentation);
-		printk(KERN_WARNING "frdeso12 u.path:%s\n", event_param->u.uprobe.path);
 		event = lttng_event_create(channel, event_param,
 				NULL, NULL,
 				event_param->instrumentation);
@@ -1135,7 +1131,6 @@ long lttng_channel_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct lttng_channel *channel = file->private_data;
 
-	printk(KERN_DEBUG"%s, cmd: %d\n", __func__, cmd);
 	switch (cmd) {
 	case LTTNG_KERNEL_OLD_STREAM:
 	case LTTNG_KERNEL_STREAM:
@@ -1211,16 +1206,11 @@ old_event_end:
 	{
 		struct lttng_kernel_event uevent_param;
 
-		printk(KERN_WARNING "frdeso132"); 
-		printk(KERN_WARNING "frdeso132i: %s\n", ((struct lttng_kernel_event __user *) arg)->name);
-		printk(KERN_WARNING "frdeso132i: %s\n", ((struct lttng_kernel_event __user *) arg)->u.uprobe);
 		if (copy_from_user(&uevent_param,
 				(struct lttng_kernel_event __user *) arg,
 				sizeof(uevent_param))){
-			printk(KERN_WARNING "frdeso1324"); 
 			return -EFAULT;
 		}
-		printk(KERN_WARNING "frdeso331324"); 
 		return lttng_abi_create_event(file, &uevent_param);
 	}
 	case LTTNG_KERNEL_OLD_CONTEXT:
@@ -1280,7 +1270,6 @@ old_ctx_end:
 		if (copy_from_user(&ucontext_param,
 				(struct lttng_kernel_context __user *) arg,
 				sizeof(ucontext_param))){
-			printk(KERN_WARNING "frdeso132466"); 
 			return -EFAULT;
 		}
 		return lttng_abi_add_context(file,
@@ -1299,7 +1288,6 @@ old_ctx_end:
 	default:
 		return -ENOIOCTLCMD;
 	}
-	printk(KERN_WARNING "frdeso12222466"); 
 
 
 }
@@ -1758,7 +1746,7 @@ int __init lttng_abi_init(void)
 	lttng_clock_ref();
 	lttng_proc_dentry = proc_create_data("lttng", S_IRUSR | S_IWUSR, NULL,
 					&lttng_fops, NULL);
-	
+
 	if (!lttng_proc_dentry) {
 		printk(KERN_ERR "Error creating LTTng control file\n");
 		ret = -ENOMEM;
