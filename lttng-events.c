@@ -756,8 +756,6 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 		break;
 	case LTTNG_KERNEL_UPROBE:
 
-		printk(KERN_WARNING "Calling uprobes register\n");
-		printk(KERN_WARNING "filename: %s\n", event_param->u.uprobe.path);
 		ret = lttng_uprobes_register(event_param->name,
 				event_param->u.uprobe.path,
 				event_param->u.uprobe.offset,

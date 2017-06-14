@@ -45,16 +45,16 @@ int lttng_uprobes_handler_pre(struct uprobe_consumer *uc, struct pt_regs *regs)
 	struct lib_ring_buffer_ctx ctx;
 	int ret;
 
+	struct {
+		int a;
+	 } payload;
+
 	if (unlikely(!ACCESS_ONCE(chan->session->active)))
 		return 0;
 	if (unlikely(!ACCESS_ONCE(chan->enabled)))
 		return 0;
 	if (unlikely(!ACCESS_ONCE(event->enabled)))
 		return 0;
-
-	struct {
-		int a;
-	 } payload;
 
 	lib_ring_buffer_ctx_init(&ctx, chan->chan, &lttng_probe_ctx, sizeof(payload),
 			lttng_alignof(payload), -1);
@@ -91,7 +91,7 @@ int lttng_create_uprobe_event(const char *name, struct lttng_event *event)
 	}
 
 	desc->nr_fields = 1;
-	desc->fields = fields = 
+	desc->fields = fields =
 		kzalloc(1 * sizeof(struct lttng_event_field), GFP_KERNEL);
 
 	if (!desc->fields) {
@@ -149,7 +149,7 @@ int lttng_uprobes_register(const char *name,
 
 	 /* Ensure the memory we just allocated don't trigger page faults. */
 	wrapper_vmalloc_sync_all();
-	printk(KERN_WARNING"Registering probe on inode %llu and offset %llu\n", event->u.uprobe.inode, event->u.uprobe.offset);
+	printk(KERN_WARNING "Registering probe on inode %lu and offset %llu\n", event->u.uprobe.inode->i_ino, event->u.uprobe.offset);
 	ret = wrapper_uprobe_register(event->u.uprobe.inode,
 			event->u.uprobe.offset,
 			&event->u.uprobe.up_consumer);
