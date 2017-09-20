@@ -265,6 +265,7 @@ endif # CONFIG_KPROBES
 
 ifneq ($(CONFIG_UPROBES),)
   obj-$(CONFIG_LTTNG) += lttng-uprobes.o
+  obj-$(CONFIG_LTTNG) += lttng-uretprobes.o
 endif # CONFIG_UPROBES
 
 ifneq ($(CONFIG_KRETPROBES),)

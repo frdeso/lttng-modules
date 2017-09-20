@@ -402,6 +402,9 @@ int lttng_event_enable(struct lttng_event *event)
 	case LTTNG_KERNEL_KRETPROBE:
 		ret = lttng_kretprobes_event_enable_state(event, 1);
 		break;
+	case LTTNG_KERNEL_URETPROBE:
+		ret = lttng_uretprobes_event_enable_state(event, 1);
+		break;
 	default:
 		WARN_ON_ONCE(1);
 		ret = -EINVAL;
@@ -437,6 +440,9 @@ int lttng_event_disable(struct lttng_event *event)
 		break;
 	case LTTNG_KERNEL_KRETPROBE:
 		ret = lttng_kretprobes_event_enable_state(event, 0);
+		break;
+	case LTTNG_KERNEL_URETPROBE:
+		ret = lttng_uretprobes_event_enable_state(event, 0);
 		break;
 	default:
 		WARN_ON_ONCE(1);
@@ -580,6 +586,7 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 	case LTTNG_KERNEL_KPROBE:
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
+	case LTTNG_KERNEL_URETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_NOOP:
 	case LTTNG_KERNEL_SYSCALL:
@@ -764,6 +771,64 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 		ret = try_module_get(event->desc->owner);
 		WARN_ON_ONCE(!ret);
 		break;
+	case LTTNG_KERNEL_URETPROBE:
+	{
+		struct lttng_event *event_return;
+
+		/*
+		 * uretprobe defines 2 LTTng events: function entry and function
+		 * return.
+		 */
+		event_return = kmem_cache_zalloc(event_cache, GFP_KERNEL);
+		if (!event_return) {
+			ret = -ENOMEM;
+			goto register_error;
+		}
+
+		event_return->chan = chan;
+		event_return->filter = filter;
+		event_return->id = chan->free_event_id++;
+		event_return->instrumentation = itype;
+
+		/*
+		 * Needs to be explicitly enabled after creation, since we may
+		 * want to apply filters.
+		 */
+		event->enabled = 0;
+		event_return->enabled = 0;
+
+		event->registered = 1;
+		event_return->registered = 1;
+
+		/*
+		 * Populate lttng_event structures before event registration.
+		 */
+		smp_wmb();
+
+		ret = lttng_uretprobes_register(event_param->name,
+				event_param->u.uprobe.fd,
+				event, event_return);
+		if (ret)
+			goto register_error;
+		/* Take 2 refs on the module: one per event. */
+		ret = try_module_get(event->desc->owner);
+		WARN_ON_ONCE(!ret);
+		ret = try_module_get(event->desc->owner);
+		WARN_ON_ONCE(!ret);
+		/*
+		 * Add the event_return to the metadata.
+		 */
+		ret = _lttng_event_metadata_statedump(chan->session, chan,
+						    event_return);
+		if (ret) {
+			kmem_cache_free(event_cache, event_return);
+			module_put(event->desc->owner);
+			module_put(event->desc->owner);
+			goto statedump_error;
+		}
+		list_add(&event_return->list, &chan->session->events);
+		break;
+	}
 	default:
 		WARN_ON_ONCE(1);
 		ret = -EINVAL;
@@ -828,6 +893,7 @@ void register_event(struct lttng_event *event)
 	case LTTNG_KERNEL_KPROBE:
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
+	case LTTNG_KERNEL_URETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_NOOP:
 		ret = 0;
@@ -880,6 +946,10 @@ int _lttng_event_unregister(struct lttng_event *event)
 		lttng_uprobes_unregister(event);
 		ret = 0;
 		break;
+	case LTTNG_KERNEL_URETPROBE:
+		lttng_uretprobes_unregister(event);
+		ret = 0;
+		break;
 	default:
 		WARN_ON_ONCE(1);
 	}
@@ -916,6 +986,11 @@ void _lttng_event_destroy(struct lttng_event *event)
 	case LTTNG_KERNEL_UPROBE:
 		module_put(event->desc->owner);
 		lttng_uprobes_destroy_private(event);
+		break;
+	case LTTNG_KERNEL_URETPROBE:
+		/* 2 references were grabbed on the register(). */
+		module_put(event->desc->owner);
+		lttng_uretprobes_destroy_private(event);
 		break;
 	default:
 		WARN_ON_ONCE(1);

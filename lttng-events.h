@@ -242,6 +242,7 @@ struct lttng_probe_desc {
 };
 
 struct lttng_krp;				/* Kretprobe handling */
+struct lttng_urp;				/* Uretprobe handling */
 
 enum lttng_event_type {
 	LTTNG_TYPE_EVENT = 0,
@@ -321,6 +322,11 @@ struct lttng_event {
 			struct inode *inode;
 			struct list_head head;
 		} uprobe;
+		struct {
+			struct lttng_urp *lttng_urp;
+			struct inode *inode;
+			loff_t offset;
+		} uretprobe;
 	} u;
 	struct list_head list;		/* Event list in session */
 	unsigned int metadata_dumped:1;
@@ -793,6 +799,15 @@ int lttng_uprobes_add_callsite(struct lttng_event *event,
 	struct lttng_kernel_event_callsite *callsite);
 void lttng_uprobes_unregister(struct lttng_event *event);
 void lttng_uprobes_destroy_private(struct lttng_event *event);
+int lttng_uretprobes_register(const char *name,
+		int fd,
+		uint64_t offset,
+		struct lttng_event *event_entry,
+		struct lttng_event *event_return);
+void lttng_uretprobes_unregister(struct lttng_event *event);
+void lttng_uretprobes_destroy_private(struct lttng_event *event);
+int lttng_uretprobes_event_enable_state(struct lttng_event *event,
+	int enable);
 #else
 static inline
 int lttng_uprobes_register(const char *name,
@@ -816,6 +831,29 @@ void lttng_uprobes_unregister(struct lttng_event *event)
 static inline
 void lttng_uprobes_destroy_private(struct lttng_event *event)
 {
+}
+static inline
+int lttng_uretprobes_register(const char *name,
+		int fd,
+		uint64_t offset,
+		struct lttng_event *event)
+{
+	return -ENOSYS;
+}
+
+static inline
+void lttng_uretprobes_unregister(struct lttng_event *event)
+{
+}
+
+static inline
+void lttng_uretprobes_destroy_private(struct lttng_event *event)
+{
+}
+int lttng_uretprobes_event_enable_state(struct lttng_event *event,
+	int enable)
+{
+	return -ENOSYS;
 }
 #endif
 

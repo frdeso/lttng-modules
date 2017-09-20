@@ -29,6 +29,7 @@ enum lttng_kernel_instrumentation {
 	LTTNG_KERNEL_NOOP	= 4,	/* not hooked */
 	LTTNG_KERNEL_SYSCALL	= 5,
 	LTTNG_KERNEL_UPROBE	= 6,
+	LTTNG_KERNEL_URETPROBE	= 7,
 };
 
 /*
@@ -74,6 +75,9 @@ struct lttng_kernel_function_tracer {
 	char symbol_name[LTTNG_KERNEL_SYM_NAME_LEN];
 } __attribute__((packed));
 
+/*
+ * This structure is used for both uprobes and uretprobes.
+ */
 struct lttng_kernel_uprobe {
 	int fd;
 } __attribute__((packed));
