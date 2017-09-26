@@ -14,7 +14,7 @@
 
 #include <probes/lttng.h>
 #include <probes/lttng-types.h>
-#include <probes/lttng-probe-user.h>
+#include <probes/lttng-probe-utils.h>
 #include <wrapper/vmalloc.h>	/* for wrapper_vmalloc_sync_all() */
 #include <wrapper/ringbuffer/frontend_types.h>
 #include <wrapper/ringbuffer/backend.h>

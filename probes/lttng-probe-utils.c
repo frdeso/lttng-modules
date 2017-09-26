@@ -1,13 +1,13 @@
 /* SPDX-License-Identifier: (GPL-2.0 or LGPL-2.1)
  *
- * lttng-probe-user.c
+ * lttng-probe-utils.c
  *
  * Copyright (C) 2012 Mathieu Desnoyers <mathieu.desnoyers@efficios.com>
  */
 
 #include <linux/uaccess.h>
 #include <linux/module.h>
-#include <probes/lttng-probe-user.h>
+#include <probes/lttng-probe-utils.h>
 
 /*
  * Calculate string length. Include final null terminating character if there is
@@ -49,3 +49,35 @@ long lttng_strlen_user_inatomic(const char *addr)
 	return count;
 }
 EXPORT_SYMBOL_GPL(lttng_strlen_user_inatomic);
+
+/*
+ * Returns the inode struct from the current task and an fd. The inode is grabed
+ * by this function and most be put once we are done with it using iput()
+ */
+struct inode *lttng_get_inode_from_fd(int fd)
+{
+	struct file *file;
+	struct inode *inode;
+
+	rcu_read_lock();
+	/*
+	 * Returns the file backing the given fd. Needs to be done inside an RCU
+	 * critical section
+	 */
+	file = fcheck(fd);
+	if (file == NULL) {
+		printk(KERN_WARNING "Cannot access file backing the fd(%d)\n", fd);
+		inode = NULL;
+		goto error;
+	}
+
+	/* Grab a reference on the inode. */
+	inode = igrab(file->f_path.dentry->d_inode);
+	if (inode == NULL)
+		printk(KERN_WARNING "Cannot grab a reference on the inode.\n");
+
+error:
+	rcu_read_unlock();
+	return inode;
+}
+EXPORT_SYMBOL_GPL(lttng_get_inode_from_fd);

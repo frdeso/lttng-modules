@@ -24,15 +24,16 @@
 #include <linux/fdtable.h>
 #include <linux/list.h>
 #include <linux/module.h>
-#include <linux/namei.h>
+#include <wrapper/uprobes.h>
 #include <linux/slab.h>
-#include <linux/uaccess.h>
 #include <lttng-events.h>
 #include <lttng-tracer.h>
 #include <wrapper/irqflags.h>
 #include <wrapper/ringbuffer/frontend_types.h>
 #include <wrapper/uprobes.h>
 #include <wrapper/vmalloc.h>
+
+#include "lttng-probe-utils.h"
 
 static
 int lttng_uprobes_handler_pre(struct uprobe_consumer *uc, struct pt_regs *regs)
@@ -123,36 +124,6 @@ error_str:
 	return ret;
 }
 
-/*
- * Returns the inode struct from the current task and an fd. The inode is
- * grabbed by this function and must be put once we are done with it using
- * iput().
- */
-static struct inode *get_inode_from_fd(int fd)
-{
-	struct file *file;
-	struct inode *inode;
-
-	rcu_read_lock();
-	/*
-	 * Returns the file backing the given fd. Needs to be done inside an RCU
-	 * critical section.
-	 */
-	file = fcheck(fd);
-	if (file == NULL) {
-		printk(KERN_WARNING "Cannot access file backing the fd(%d)\n", fd);
-		inode = NULL;
-		goto error;
-	}
-
-	/* Grab a reference on the inode. */
-	inode = igrab(file->f_path.dentry->d_inode);
-	if (inode == NULL)
-		printk(KERN_WARNING "Cannot grab a reference on the inode.\n");
-error:
-	rcu_read_unlock();
-	return inode;
-}
 
 int lttng_uprobes_add_callsite(struct lttng_event *event,
 	struct lttng_kernel_event_callsite __user *callsite)
@@ -213,7 +184,7 @@ int lttng_uprobes_register(const char *name, int fd, struct lttng_event *event)
 	if (ret)
 		goto error;
 
-	inode = get_inode_from_fd(fd);
+	inode = lttng_get_inode_from_fd(fd);
 	if (!inode) {
 		printk(KERN_WARNING "Cannot get inode from fd\n");
 		ret = -EBADF;

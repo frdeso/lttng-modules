@@ -23,12 +23,13 @@
 #include <linux/module.h>
 #include <lttng-events.h>
 #include <linux/slab.h>
-#include <linux/fdtable.h>
 #include <wrapper/ringbuffer/frontend_types.h>
 #include <wrapper/vmalloc.h>
 #include <wrapper/irqflags.h>
 #include <wrapper/uprobes.h>
 #include <lttng-tracer.h>
+
+#include "lttng-probe-utils.h"
 
 enum lttng_uretprobe_type {
 	EVENT_ENTRY	= 0,
@@ -176,37 +177,6 @@ error_desc:
 	return ret;
 }
 
-/*
- * Returns the inode struct from the current task and an fd. The inode is grabed
- * by this function and most be put once we are done with it using iput()
- */
-static struct inode *get_inode_from_fd(int fd)
-{
-	struct file *file;
-	struct inode *inode;
-
-	rcu_read_lock();
-	/*
-	 * Returns the file backing the given fd. Needs to be done inside an RCU
-	 * critical section
-	 */
-	file = fcheck(fd);
-	if (file == NULL) {
-		printk(KERN_WARNING "Cannot access file backing the fd(%d)\n", fd);
-		inode = NULL;
-		goto error;
-	}
-
-	/* Grab a reference on the inode */
-	inode = igrab(file->f_path.dentry->d_inode);
-	if (inode == NULL)
-		printk(KERN_WARNING "Cannot grab a reference on the inode.\n");
-
-error:
-	rcu_read_unlock();
-	return inode;
-}
-
 int lttng_uretprobes_register(const char *name,
 			   int fd,
 			   uint64_t offset,
@@ -238,7 +208,7 @@ int lttng_uretprobes_register(const char *name,
 	lttng_urp->up_consumer.ret_handler = lttng_uretprobes_handler_return;
 	lttng_urp->offset = offset;
 
-	inode = get_inode_from_fd(fd);
+	inode = lttng_get_inode_from_fd(fd);
 	if (!inode) {
 		printk(KERN_WARNING "Cannot get inode from fd\n");
 		ret = -EBADF;
