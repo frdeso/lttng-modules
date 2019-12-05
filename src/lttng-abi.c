@@ -1309,20 +1309,20 @@ int lttng_abi_create_event(struct file *channel_file,
 	}
 	if (event_param->instrumentation == LTTNG_KERNEL_TRACEPOINT
 			|| event_param->instrumentation == LTTNG_KERNEL_SYSCALL) {
-		struct lttng_enabler *enabler;
+		struct lttng_event_enabler *event_enabler;
 
 		if (strutils_is_star_glob_pattern(event_param->name)) {
 			/*
 			 * If the event name is a star globbing pattern,
 			 * we create the special star globbing enabler.
 			 */
-			enabler = lttng_enabler_create(LTTNG_ENABLER_FORMAT_STAR_GLOB,
+			event_enabler = lttng_event_enabler_create(LTTNG_ENABLER_FORMAT_STAR_GLOB,
 				event_param, channel);
 		} else {
-			enabler = lttng_enabler_create(LTTNG_ENABLER_FORMAT_NAME,
+			event_enabler = lttng_event_enabler_create(LTTNG_ENABLER_FORMAT_NAME,
 				event_param, channel);
 		}
-		priv = enabler;
+		priv = event_enabler;
 	} else {
 		struct lttng_event *event;
 
@@ -1651,7 +1651,7 @@ static
 long lttng_event_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct lttng_event *event;
-	struct lttng_enabler *enabler;
+	struct lttng_event_enabler *event_enabler;
 	enum lttng_event_type *evtype = file->private_data;
 
 	switch (cmd) {
@@ -1672,8 +1672,8 @@ long lttng_event_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			event = file->private_data;
 			return lttng_event_enable(event);
 		case LTTNG_TYPE_ENABLER:
-			enabler = file->private_data;
-			return lttng_enabler_enable(enabler);
+			event_enabler = file->private_data;
+			return lttng_event_enabler_enable(event_enabler);
 		default:
 			WARN_ON_ONCE(1);
 			return -ENOSYS;
@@ -1685,8 +1685,8 @@ long lttng_event_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			event = file->private_data;
 			return lttng_event_disable(event);
 		case LTTNG_TYPE_ENABLER:
-			enabler = file->private_data;
-			return lttng_enabler_disable(enabler);
+			event_enabler = file->private_data;
+			return lttng_event_enabler_disable(event_enabler);
 		default:
 			WARN_ON_ONCE(1);
 			return -ENOSYS;
@@ -1697,8 +1697,8 @@ long lttng_event_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			return -EINVAL;
 		case LTTNG_TYPE_ENABLER:
 		{
-			enabler = file->private_data;
-			return lttng_enabler_attach_bytecode(enabler,
+			event_enabler = file->private_data;
+			return lttng_event_enabler_attach_bytecode(event_enabler,
 				(struct lttng_kernel_filter_bytecode __user *) arg);
 		}
 		default:
@@ -1726,7 +1726,7 @@ static
 int lttng_event_release(struct inode *inode, struct file *file)
 {
 	struct lttng_event *event;
-	struct lttng_enabler *enabler;
+	struct lttng_event_enabler *event_enabler;
 	enum lttng_event_type *evtype = file->private_data;
 
 	if (!evtype)
@@ -1739,9 +1739,9 @@ int lttng_event_release(struct inode *inode, struct file *file)
 			fput(event->chan->file);
 		break;
 	case LTTNG_TYPE_ENABLER:
-		enabler = file->private_data;
-		if (enabler)
-			fput(enabler->chan->file);
+		event_enabler = file->private_data;
+		if (event_enabler)
+			fput(event_enabler->chan->file);
 		break;
 	default:
 		WARN_ON_ONCE(1);
