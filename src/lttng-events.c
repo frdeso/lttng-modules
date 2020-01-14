@@ -599,8 +599,10 @@ int lttng_trigger_enable(struct lttng_trigger *trigger)
 	case LTTNG_KERNEL_TRACEPOINT:
 		ret = -EINVAL;
 		break;
-	case LTTNG_KERNEL_SYSCALL:
 	case LTTNG_KERNEL_KPROBE:
+		WRITE_ONCE(trigger->enabled, 1);
+		break;
+	case LTTNG_KERNEL_SYSCALL:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_NOOP:
@@ -627,8 +629,10 @@ int lttng_trigger_disable(struct lttng_trigger *trigger)
 	case LTTNG_KERNEL_TRACEPOINT:
 		ret = -EINVAL;
 		break;
-	case LTTNG_KERNEL_SYSCALL:
 	case LTTNG_KERNEL_KPROBE:
+		WRITE_ONCE(trigger->enabled, 0);
+		break;
+	case LTTNG_KERNEL_SYSCALL:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_NOOP:
@@ -967,6 +971,8 @@ struct lttng_trigger *_lttng_trigger_create(
 		event_name = event_desc->name;
 		break;
 	case LTTNG_KERNEL_KPROBE:
+		event_name = trigger_param->name;
+		break;
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
@@ -1019,6 +1025,29 @@ struct lttng_trigger *_lttng_trigger_create(
 		smp_wmb();
 		break;
 	case LTTNG_KERNEL_KPROBE:
+		/*
+		 * Needs to be explicitly enabled after creation, since
+		 * we may want to apply filters.
+		 */
+		trigger->enabled = 0;
+		trigger->registered = 1;
+		/*
+		 * Populate lttng_trigger structure before event
+		 * registration.
+		 */
+		smp_wmb();
+		ret = lttng_kprobes_register_trigger(
+				trigger_param->u.kprobe.symbol_name,
+				trigger_param->u.kprobe.offset,
+				trigger_param->u.kprobe.addr,
+				trigger);
+		if (ret) {
+			ret = -EINVAL;
+			goto register_error;
+		}
+		ret = try_module_get(trigger->desc->owner);
+		WARN_ON_ONCE(!ret);
+		break;
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
@@ -1170,8 +1199,10 @@ void register_trigger(struct lttng_trigger *trigger)
 						  desc->trigger_callback,
 						  trigger);
 		break;
-	case LTTNG_KERNEL_SYSCALL:
 	case LTTNG_KERNEL_KPROBE:
+		ret = 0;
+		break;
+	case LTTNG_KERNEL_SYSCALL:
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
@@ -1200,6 +1231,9 @@ int _lttng_trigger_unregister(struct lttng_trigger *trigger)
 						  trigger);
 		break;
 	case LTTNG_KERNEL_KPROBE:
+		lttng_kprobes_unregister_trigger(trigger);
+		ret = 0;
+		break;
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_SYSCALL:
@@ -1258,6 +1292,9 @@ void _lttng_trigger_destroy(struct lttng_trigger *trigger)
 		lttng_event_desc_put(trigger->desc);
 		break;
 	case LTTNG_KERNEL_KPROBE:
+		module_put(trigger->desc->owner);
+		lttng_kprobes_destroy_trigger_private(trigger);
+		break;
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_NOOP:

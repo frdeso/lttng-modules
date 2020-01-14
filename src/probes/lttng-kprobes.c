@@ -49,6 +49,20 @@ int lttng_kprobes_event_handler_pre(struct kprobe *p, struct pt_regs *regs)
 	return 0;
 }
 
+static
+int lttng_kprobes_trigger_handler_pre(struct kprobe *p, struct pt_regs *regs)
+{
+	struct lttng_trigger *trigger =
+		container_of(p, struct lttng_trigger, u.kprobe.kp);
+
+	if (unlikely(!READ_ONCE(trigger->enabled)))
+		return 0;
+
+	trigger->send_notification(trigger);
+
+	return 0;
+}
+
 /*
  * Create event description
  */
@@ -89,6 +103,35 @@ int lttng_create_kprobe_event(const char *name, struct lttng_event *event)
 
 error_field:
 	kfree(desc->name);
+error_str:
+	kfree(desc);
+	return ret;
+}
+
+/*
+ * Create trigger description
+ */
+static
+int lttng_create_kprobe_trigger(const char *name, struct lttng_trigger *trigger)
+{
+	struct lttng_event_desc *desc;
+	int ret;
+
+	desc = kzalloc(sizeof(*trigger->desc), GFP_KERNEL);
+	if (!desc)
+		return -ENOMEM;
+	desc->name = kstrdup(name, GFP_KERNEL);
+	if (!desc->name) {
+		ret = -ENOMEM;
+		goto error_str;
+	}
+	desc->nr_fields = 0;
+
+	desc->owner = THIS_MODULE;
+	trigger->desc = desc;
+
+	return 0;
+
 error_str:
 	kfree(desc);
 	return ret;
@@ -173,11 +216,42 @@ error:
 }
 EXPORT_SYMBOL_GPL(lttng_kprobes_register_event);
 
+int lttng_kprobes_register_trigger(const char *symbol_name,
+			   uint64_t offset,
+			   uint64_t addr,
+			   struct lttng_trigger *trigger)
+{
+	int ret;
+	ret = lttng_create_kprobe_trigger(symbol_name, trigger);
+	if (ret)
+		goto error;
+
+	ret = _lttng_kprobes_register(symbol_name, offset, addr,
+		&trigger->u.kprobe, lttng_kprobes_trigger_handler_pre);
+	if (ret)
+		goto register_error;
+
+	return 0;
+
+register_error:
+	kfree(trigger->desc->name);
+	kfree(trigger->desc);
+error:
+	return ret;
+}
+EXPORT_SYMBOL_GPL(lttng_kprobes_register_trigger);
+
 void lttng_kprobes_unregister_event(struct lttng_event *event)
 {
 	unregister_kprobe(&event->u.kprobe.kp);
 }
 EXPORT_SYMBOL_GPL(lttng_kprobes_unregister_event);
+
+void lttng_kprobes_unregister_trigger(struct lttng_trigger *trigger)
+{
+	unregister_kprobe(&trigger->u.kprobe.kp);
+}
+EXPORT_SYMBOL_GPL(lttng_kprobes_unregister_trigger);
 
 void lttng_kprobes_destroy_event_private(struct lttng_event *event)
 {
@@ -187,6 +261,14 @@ void lttng_kprobes_destroy_event_private(struct lttng_event *event)
 	kfree(event->desc);
 }
 EXPORT_SYMBOL_GPL(lttng_kprobes_destroy_event_private);
+
+void lttng_kprobes_destroy_trigger_private(struct lttng_trigger *trigger)
+{
+	kfree(trigger->u.kprobe.symbol_name);
+	kfree(trigger->desc->name);
+	kfree(trigger->desc);
+}
+EXPORT_SYMBOL_GPL(lttng_kprobes_destroy_trigger_private);
 
 MODULE_LICENSE("GPL and additional rights");
 MODULE_AUTHOR("Mathieu Desnoyers <mathieu.desnoyers@efficios.com>");

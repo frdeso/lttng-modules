@@ -1668,6 +1668,7 @@ fd_error:
 static
 long lttng_trigger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
+	struct lttng_trigger *trigger;
 	struct lttng_trigger_enabler *trigger_enabler;
 	enum lttng_event_type *evtype = file->private_data;
 
@@ -1675,7 +1676,8 @@ long lttng_trigger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case LTTNG_KERNEL_ENABLE:
 		switch (*evtype) {
 		case LTTNG_TYPE_EVENT:
-			return -EINVAL;
+			trigger = file->private_data;
+			return lttng_trigger_enable(trigger);
 		case LTTNG_TYPE_ENABLER:
 			trigger_enabler = file->private_data;
 			return lttng_trigger_enabler_enable(trigger_enabler);
@@ -1686,7 +1688,8 @@ long lttng_trigger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case LTTNG_KERNEL_DISABLE:
 		switch (*evtype) {
 		case LTTNG_TYPE_EVENT:
-			return -EINVAL;
+			trigger = file->private_data;
+			return lttng_trigger_disable(trigger);
 		case LTTNG_TYPE_ENABLER:
 			trigger_enabler = file->private_data;
 			return lttng_trigger_enabler_disable(trigger_enabler);
@@ -1762,6 +1765,8 @@ int lttng_abi_create_trigger(struct file *trigger_group_file,
 	case LTTNG_KERNEL_TRACEPOINT:
 		break;
 	case LTTNG_KERNEL_KPROBE:
+		trigger_param->u.kprobe.symbol_name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
+		break;
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
 	case LTTNG_KERNEL_FUNCTION:
