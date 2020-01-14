@@ -276,6 +276,11 @@ struct lttng_uprobe_handler {
 	struct list_head node;
 };
 
+struct lttng_kprobe {
+	struct kprobe kp;
+	char *symbol_name;
+};
+
 /*
  * lttng_event structure is referred to by the tracing fast path. It must be
  * kept small.
@@ -290,10 +295,7 @@ struct lttng_event {
 	struct lttng_ctx *ctx;
 	enum lttng_kernel_instrumentation instrumentation;
 	union {
-		struct {
-			struct kprobe kp;
-			char *symbol_name;
-		} kprobe;
+		struct lttng_kprobe kprobe;
 		struct {
 			struct lttng_krp *lttng_krp;
 			char *symbol_name;
@@ -981,16 +983,16 @@ void lttng_logger_exit(void);
 extern int lttng_statedump_start(struct lttng_session *session);
 
 #ifdef CONFIG_KPROBES
-int lttng_kprobes_register(const char *name,
+int lttng_kprobes_register_event(const char *name,
 		const char *symbol_name,
 		uint64_t offset,
 		uint64_t addr,
 		struct lttng_event *event);
-void lttng_kprobes_unregister(struct lttng_event *event);
-void lttng_kprobes_destroy_private(struct lttng_event *event);
+void lttng_kprobes_unregister_event(struct lttng_event *event);
+void lttng_kprobes_destroy_event_private(struct lttng_event *event);
 #else
 static inline
-int lttng_kprobes_register(const char *name,
+int lttng_kprobes_register_event(const char *name,
 		const char *symbol_name,
 		uint64_t offset,
 		uint64_t addr,
@@ -1000,7 +1002,12 @@ int lttng_kprobes_register(const char *name,
 }
 
 static inline
-void lttng_kprobes_unregister(struct lttng_event *event)
+void lttng_kprobes_unregister_event(struct lttng_event *event)
+{
+}
+
+static inline
+void lttng_kprobes_destroy_event_private(struct lttng_event *event)
 {
 }
 
