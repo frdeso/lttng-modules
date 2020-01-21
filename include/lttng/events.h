@@ -272,6 +272,7 @@ struct lttng_enabler_ref {
 struct lttng_uprobe_handler {
 	union {
 		struct lttng_event *event;
+		struct lttng_trigger *trigger;
 	} u;
 	loff_t offset;
 	struct uprobe_consumer up_consumer;
@@ -334,6 +335,7 @@ struct lttng_trigger {
 	enum lttng_kernel_instrumentation instrumentation;
 	union {
 		struct lttng_kprobe kprobe;
+		struct lttng_uprobe uprobe;
 	} u;
 
 	/* Backward references: list of lttng_enabler_ref (ref to enablers) */
@@ -1048,6 +1050,9 @@ void lttng_kprobes_destroy_trigger_private(struct lttng_trigger *trigger)
 int lttng_event_add_callsite(struct lttng_event *event,
 	struct lttng_kernel_event_callsite *callsite);
 
+int lttng_trigger_add_callsite(struct lttng_trigger *trigger,
+	struct lttng_kernel_event_callsite *callsite);
+
 #ifdef CONFIG_UPROBES
 int lttng_uprobes_register_event(const char *name,
 	int fd, struct lttng_event *event);
@@ -1055,6 +1060,12 @@ int lttng_uprobes_event_add_callsite(struct lttng_event *event,
 	struct lttng_kernel_event_callsite *callsite);
 void lttng_uprobes_unregister_event(struct lttng_event *event);
 void lttng_uprobes_destroy_event_private(struct lttng_event *event);
+int lttng_uprobes_register_trigger(const char *name,
+	int fd, struct lttng_trigger *trigger);
+int lttng_uprobes_trigger_add_callsite(struct lttng_trigger *trigger,
+	struct lttng_kernel_event_callsite *callsite);
+void lttng_uprobes_unregister_trigger(struct lttng_trigger *trigger);
+void lttng_uprobes_destroy_trigger_private(struct lttng_trigger *trigger);
 #else
 static inline
 int lttng_uprobes_register_event(const char *name,
@@ -1077,6 +1088,30 @@ void lttng_uprobes_unregister_event(struct lttng_event *event)
 
 static inline
 void lttng_uprobes_destroy_event_private(struct lttng_event *event)
+{
+}
+
+static inline
+int lttng_uprobes_register_trigger(const char *name,
+	int fd, struct lttng_trigger *trigger)
+{
+	return -ENOSYS;
+}
+
+static inline
+int lttng_uprobes_trigger_add_callsite(struct lttng_trigger *trigger,
+	struct lttng_kernel_event_callsite *callsite)
+{
+	return -ENOSYS;
+}
+
+static inline
+void lttng_uprobes_unregister_trigger(struct lttng_trigger *trigger)
+{
+}
+
+static inline
+void lttng_uprobes_destroy_trigger_private(struct lttng_trigger *trigger)
 {
 }
 #endif

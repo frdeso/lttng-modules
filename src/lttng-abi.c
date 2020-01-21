@@ -1709,6 +1709,18 @@ long lttng_trigger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			WARN_ON_ONCE(1);
 			return -ENOSYS;
 		}
+	case LTTNG_KERNEL_ADD_CALLSITE:
+		switch (*evtype) {
+		case LTTNG_TYPE_EVENT:
+			trigger = file->private_data;
+			return lttng_trigger_add_callsite(trigger,
+				(struct lttng_kernel_event_callsite __user *) arg);
+		case LTTNG_TYPE_ENABLER:
+			return -EINVAL;
+		default:
+			WARN_ON_ONCE(1);
+			return -ENOSYS;
+		}
 	default:
 		return -ENOIOCTLCMD;
 	}
@@ -1763,13 +1775,13 @@ int lttng_abi_create_trigger(struct file *trigger_group_file,
 
 	switch (trigger_param->instrumentation) {
 	case LTTNG_KERNEL_TRACEPOINT:
+	case LTTNG_KERNEL_UPROBE:
 		break;
 	case LTTNG_KERNEL_KPROBE:
 		trigger_param->u.kprobe.symbol_name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
 		break;
 	case LTTNG_KERNEL_KRETPROBE:
 		/* Placing a trigger on kretprobe is not supported. */
-	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_FUNCTION:
 	case LTTNG_KERNEL_NOOP:
 	case LTTNG_KERNEL_SYSCALL:

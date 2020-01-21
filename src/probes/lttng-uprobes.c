@@ -63,6 +63,20 @@ int lttng_uprobes_event_handler_pre(struct uprobe_consumer *uc, struct pt_regs *
 	return 0;
 }
 
+static
+int lttng_uprobes_trigger_handler_pre(struct uprobe_consumer *uc, struct pt_regs *regs)
+{
+	struct lttng_uprobe_handler *uprobe_handler =
+		container_of(uc, struct lttng_uprobe_handler, up_consumer);
+	struct lttng_trigger *trigger = uprobe_handler->u.trigger;
+
+	if (unlikely(!READ_ONCE(trigger->enabled)))
+		return 0;
+
+	trigger->send_notification(trigger);
+	return 0;
+}
+
 /*
  * Create event description.
  */
@@ -106,6 +120,36 @@ int lttng_create_uprobe_event(const char *name, struct lttng_event *event)
 
 error_fields:
 	kfree(desc->name);
+error_str:
+	kfree(desc);
+	return ret;
+}
+
+/*
+ * Create trigger description.
+ */
+static
+int lttng_create_uprobe_trigger(const char *name, struct lttng_trigger *trigger)
+{
+	struct lttng_event_desc *desc;
+	int ret;
+
+	desc = kzalloc(sizeof(*trigger->desc), GFP_KERNEL);
+	if (!desc)
+		return -ENOMEM;
+	desc->name = kstrdup(name, GFP_KERNEL);
+	if (!desc->name) {
+		ret = -ENOMEM;
+		goto error_str;
+	}
+
+	desc->nr_fields = 0;
+
+	desc->owner = THIS_MODULE;
+	trigger->desc = desc;
+
+	return 0;
+
 error_str:
 	kfree(desc);
 	return ret;
@@ -203,6 +247,14 @@ int lttng_uprobes_event_add_callsite(struct lttng_event *event,
 }
 EXPORT_SYMBOL_GPL(lttng_uprobes_event_add_callsite);
 
+int lttng_uprobes_trigger_add_callsite(struct lttng_trigger *trigger,
+	struct lttng_kernel_event_callsite __user *callsite)
+{
+	return lttng_uprobes_add_callsite(&trigger->u.uprobe, callsite,
+		lttng_uprobes_trigger_handler_pre, trigger);
+}
+EXPORT_SYMBOL_GPL(lttng_uprobes_trigger_add_callsite);
+
 static
 int lttng_uprobes_register(struct lttng_uprobe *uprobe, int fd)
 {
@@ -244,7 +296,31 @@ error:
 }
 EXPORT_SYMBOL_GPL(lttng_uprobes_register_event);
 
-void lttng_uprobes_unregister_event(struct lttng_event *event)
+int lttng_uprobes_register_trigger(const char *name, int fd,
+		struct lttng_trigger *trigger)
+{
+	int ret = 0;
+
+	ret = lttng_create_uprobe_trigger(name, trigger);
+	if (ret)
+		goto error;
+
+	ret = lttng_uprobes_register(&trigger->u.uprobe, fd);
+	if (ret)
+		goto register_error;
+
+	return 0;
+
+register_error:
+	kfree(trigger->desc->name);
+	kfree(trigger->desc);
+error:
+	return ret;
+}
+EXPORT_SYMBOL_GPL(lttng_uprobes_register_trigger);
+
+static
+void lttng_uprobes_unregister(struct inode *inode, struct list_head *head)
 {
 	struct lttng_uprobe_handler *iter, *tmp;
 
@@ -252,14 +328,25 @@ void lttng_uprobes_unregister_event(struct lttng_event *event)
 	 * Iterate over the list of handler, remove each handler from the list
 	 * and free the struct.
 	 */
-	list_for_each_entry_safe(iter, tmp, &event->u.uprobe.head, node) {
-		wrapper_uprobe_unregister(event->u.uprobe.inode, iter->offset,
-			&iter->up_consumer);
+	list_for_each_entry_safe(iter, tmp, head, node) {
+		wrapper_uprobe_unregister(inode, iter->offset, &iter->up_consumer);
 		list_del(&iter->node);
 		kfree(iter);
 	}
+
+}
+
+void lttng_uprobes_unregister_event(struct lttng_event *event)
+{
+	lttng_uprobes_unregister(event->u.uprobe.inode, &event->u.uprobe.head);
 }
 EXPORT_SYMBOL_GPL(lttng_uprobes_unregister_event);
+
+void lttng_uprobes_unregister_trigger(struct lttng_trigger *trigger)
+{
+	lttng_uprobes_unregister(trigger->u.uprobe.inode, &trigger->u.uprobe.head);
+}
+EXPORT_SYMBOL_GPL(lttng_uprobes_unregister_trigger);
 
 void lttng_uprobes_destroy_event_private(struct lttng_event *event)
 {
@@ -268,6 +355,14 @@ void lttng_uprobes_destroy_event_private(struct lttng_event *event)
 	kfree(event->desc);
 }
 EXPORT_SYMBOL_GPL(lttng_uprobes_destroy_event_private);
+
+void lttng_uprobes_destroy_trigger_private(struct lttng_trigger *trigger)
+{
+	iput(trigger->u.uprobe.inode);
+	kfree(trigger->desc->name);
+	kfree(trigger->desc);
+}
+EXPORT_SYMBOL_GPL(lttng_uprobes_destroy_trigger_private);
 
 MODULE_LICENSE("GPL and additional rights");
 MODULE_AUTHOR("Yannick Brosseau");
