@@ -289,6 +289,12 @@ struct lttng_uprobe {
 	struct list_head head;
 };
 
+struct lttng_syscall {
+	struct list_head node;			/* chain registered syscall trigger */
+	unsigned int syscall_id;
+	bool is_compat;
+};
+
 /*
  * lttng_event structure is referred to by the tracing fast path. It must be
  * kept small.
@@ -336,6 +342,7 @@ struct lttng_trigger {
 	union {
 		struct lttng_kprobe kprobe;
 		struct lttng_uprobe uprobe;
+		struct lttng_syscall syscall;
 	} u;
 
 	/* Backward references: list of lttng_enabler_ref (ref to enablers) */
@@ -593,7 +600,7 @@ struct lttng_session {
 		tstate:1;		/* Transient enable state */
 	/* List of event enablers */
 	struct list_head enablers_head;
-	/* Hash table of events */
+/* Hash table of events */
 	struct lttng_event_ht events_ht;
 	char name[LTTNG_KERNEL_SESSION_NAME_LEN];
 	char creation_time[LTTNG_KERNEL_SESSION_CREATION_TIME_ISO8601_LEN];
@@ -613,6 +620,12 @@ struct lttng_trigger_group {
 	struct lib_ring_buffer *buf;	/* Ring buffer for trigger group. */
 	wait_queue_head_t read_wait;
 	struct irq_work wakeup_pending;	/* Pending wakeup irq work. */
+
+	struct list_head *trigger_syscall_dispatch;
+	struct list_head *trigger_compat_syscall_dispatch;
+
+	unsigned int syscall_all:1,
+		sys_enter_registered:1;
 };
 
 struct lttng_metadata_cache {
@@ -751,6 +764,9 @@ int lttng_session_list_tracker_ids(struct lttng_session *session,
 void lttng_clock_ref(void);
 void lttng_clock_unref(void);
 
+int lttng_desc_match_enabler(const struct lttng_event_desc *desc,
+		struct lttng_enabler *enabler);
+
 #if defined(CONFIG_HAVE_SYSCALL_TRACEPOINTS)
 int lttng_syscalls_register_event(struct lttng_channel *chan, void *filter);
 int lttng_syscalls_unregister_event(struct lttng_channel *chan);
@@ -761,6 +777,11 @@ int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
 long lttng_channel_syscall_mask(struct lttng_channel *channel,
 		struct lttng_kernel_syscall_mask __user *usyscall_mask);
 
+int lttng_syscalls_register_trigger(struct lttng_trigger_enabler *trigger_enabler, void *filter);
+int lttng_syscals_create_matching_triggers(struct lttng_trigger_enabler *trigger_enabler, void *filter);
+int lttng_syscalls_unregister_trigger(struct lttng_trigger_group *group);
+int lttng_syscall_filter_enable_trigger(struct lttng_trigger *trigger);
+int lttng_syscall_filter_disable_trigger(struct lttng_trigger *trigger);
 #else
 static inline int lttng_syscalls_register_event(
 		struct lttng_channel *chan, void *filter)
@@ -787,6 +808,29 @@ static inline int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
 
 static inline long lttng_channel_syscall_mask(struct lttng_channel *channel,
 		struct lttng_kernel_syscall_mask __user *usyscall_mask)
+{
+	return -ENOSYS;
+}
+
+static inline int lttng_syscalls_register_trigger(
+		struct lttng_trigger_group *group, void *filter)
+{
+	return -ENOSYS;
+}
+
+static inline int lttng_syscalls_unregister_trigger(struct lttng_trigger_group *group)
+{
+	return 0;
+}
+
+static inline int lttng_syscall_filter_enable_trigger(struct lttng_trigger_group *group,
+		const char *name)
+{
+	return -ENOSYS;
+}
+
+static inline int lttng_syscall_filter_disable_trigger(struct lttng_trigger_group *group,
+		const char *name)
 {
 	return -ENOSYS;
 }

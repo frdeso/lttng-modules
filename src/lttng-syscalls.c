@@ -29,6 +29,7 @@
 #include <wrapper/rcu.h>
 #include <wrapper/syscall.h>
 #include <lttng/events.h>
+#include <lttng/utils.h>
 
 #ifndef CONFIG_COMPAT
 # ifndef is_compat_task
@@ -285,6 +286,7 @@ typedef __kernel_old_time_t time_t;
 
 struct trace_syscall_entry {
 	void *event_func;
+	void *trigger_func;
 	const struct lttng_event_desc *desc;
 	const struct lttng_event_field *fields;
 	unsigned int nrargs;
@@ -301,6 +303,7 @@ struct trace_syscall_entry {
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
 		.event_func = __event_probe__syscall_entry_##_template, \
+		.trigger_func = __trigger_probe__syscall_entry_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___syscall_entry_##_template, \
 		.desc = &__event_desc___syscall_entry_##_name,	\
@@ -316,6 +319,7 @@ static const struct trace_syscall_entry sc_table[] = {
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
 		.event_func = __event_probe__compat_syscall_entry_##_template, \
+		.trigger_func = __trigger_probe__compat_syscall_entry_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___compat_syscall_entry_##_template, \
 		.desc = &__event_desc___compat_syscall_entry_##_name, \
@@ -338,6 +342,7 @@ const struct trace_syscall_entry compat_sc_table[] = {
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
 		.event_func = __event_probe__syscall_exit_##_template, \
+		.trigger_func = __trigger_probe__syscall_exit_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___syscall_exit_##_template, \
 		.desc = &__event_desc___syscall_exit_##_name, \
@@ -353,6 +358,7 @@ static const struct trace_syscall_entry sc_exit_table[] = {
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
 		.event_func = __event_probe__compat_syscall_exit_##_template, \
+		.trigger_func = __trigger_probe__compat_syscall_exit_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___compat_syscall_exit_##_template, \
 		.desc = &__event_desc___compat_syscall_exit_##_name, \
@@ -526,6 +532,39 @@ void syscall_entry_event_probe(void *__data, struct pt_regs *regs, long id)
 	WARN_ON_ONCE(!entry);
 
 	syscall_entry_call_func(entry->event_func, entry->nrargs, event, regs);
+}
+
+void syscall_entry_trigger_probe(void *__data, struct pt_regs *regs, long id)
+{
+	struct lttng_trigger_group *trigger_group = __data;
+	const struct trace_syscall_entry *entry;
+	struct list_head *dispatch_list;
+	struct lttng_trigger *iter;
+	size_t table_len;
+
+
+	if (unlikely(in_compat_syscall())) {
+		table_len = ARRAY_SIZE(compat_sc_table);
+		if (unlikely(id < 0 || id >= table_len)) {
+			return;
+		}
+		entry = &compat_sc_table[id];
+		dispatch_list = &trigger_group->trigger_compat_syscall_dispatch[id];
+	} else {
+		table_len = ARRAY_SIZE(sc_table);
+		if (unlikely(id < 0 || id >= table_len)) {
+			return;
+		}
+		entry = &sc_table[id];
+		dispatch_list = &trigger_group->trigger_syscall_dispatch[id];
+	}
+
+	/* TODO handle unknown syscall */
+
+	list_for_each_entry_rcu(iter, dispatch_list, u.syscall.node) {
+		BUG_ON(iter->u.syscall.syscall_id != id);
+		syscall_entry_call_func(entry->trigger_func, entry->nrargs, iter, regs);
+	}
 }
 
 static void syscall_exit_event_unknown(struct lttng_event *event,
@@ -911,8 +950,156 @@ int lttng_syscalls_register_event(struct lttng_channel *chan, void *filter)
 }
 
 /*
- * Only called at session destruction.
+ * Should be called with sessions lock held.
  */
+int lttng_syscalls_register_trigger(struct lttng_trigger_enabler *trigger_enabler, void *filter)
+{
+	struct lttng_trigger_group *group = trigger_enabler->group;
+	unsigned int i;
+	int ret = 0;
+
+	wrapper_vmalloc_sync_mappings();
+
+	if (!group->trigger_syscall_dispatch) {
+		group->trigger_syscall_dispatch = kzalloc(sizeof(struct list_head)
+					* ARRAY_SIZE(sc_table), GFP_KERNEL);
+		if (!group->trigger_syscall_dispatch)
+			return -ENOMEM;
+
+		/* Initialize all list_head */
+		for (i = 0; i < ARRAY_SIZE(sc_table); i++)
+			INIT_LIST_HEAD(&group->trigger_syscall_dispatch[i]);
+	}
+
+#ifdef CONFIG_COMPAT
+	if (!group->trigger_compat_syscall_dispatch) {
+		group->trigger_compat_syscall_dispatch = kzalloc(sizeof(struct list_head)
+					* ARRAY_SIZE(compat_sc_table), GFP_KERNEL);
+		if (!group->trigger_syscall_dispatch)
+			return -ENOMEM;
+
+		/* Initialize all list_head */
+		for (i = 0; i < ARRAY_SIZE(compat_sc_table); i++)
+			INIT_LIST_HEAD(&group->trigger_compat_syscall_dispatch[i]);
+	}
+#endif
+
+	if (!group->sys_enter_registered) {
+		ret = lttng_wrapper_tracepoint_probe_register("sys_enter",
+				(void *) syscall_entry_trigger_probe, group);
+		if (ret)
+			return ret;
+		group->sys_enter_registered = 1;
+	}
+
+	return ret;
+}
+
+static int create_matching_triggers(struct lttng_trigger_enabler *trigger_enabler,
+		void *filter, const struct trace_syscall_entry *table,
+		size_t table_len, bool is_compat)
+{
+	struct lttng_trigger_group *group = trigger_enabler->group;
+	const struct lttng_event_desc *desc;
+	uint64_t id = trigger_enabler->id;
+	unsigned int i;
+	int ret = 0;
+
+	/* iterate over all syscall and create trigger that match */
+	for (i = 0; i < table_len; i++) {
+		struct lttng_trigger *trigger;
+		struct lttng_kernel_trigger trigger_param;
+		struct hlist_head *head;
+		int found = 0;
+
+		desc = table[i].desc;
+		if (!desc) {
+			/* Unknown syscall */
+			continue;
+		}
+
+		if (!lttng_desc_match_enabler(desc,
+				lttng_trigger_enabler_as_enabler(trigger_enabler)))
+			continue;
+
+		/*
+		 * Check if already created.
+		 */
+		head = utils_borrow_hash_table_bucket(group->triggers_ht.table,
+			LTTNG_TRIGGER_HT_SIZE, desc->name);
+		lttng_hlist_for_each_entry(trigger, head, hlist) {
+			if (trigger->desc == desc
+				&& trigger->id == trigger_enabler->id)
+				found = 1;
+		}
+		if (found)
+			continue;
+
+		memset(&trigger_param, 0, sizeof(trigger_param));
+		strncat(trigger_param.name, desc->name,
+			LTTNG_KERNEL_SYM_NAME_LEN - strlen(trigger_param.name) - 1);
+		trigger_param.name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
+		trigger_param.instrumentation = LTTNG_KERNEL_SYSCALL;
+
+		trigger = _lttng_trigger_create(desc, id, group,
+			&trigger_param, filter, trigger_param.instrumentation);
+		if (IS_ERR(trigger)) {
+			printk(KERN_INFO "Unable to create trigger %s\n",
+				desc->name);
+			ret = -ENOMEM;
+			goto end;
+		}
+
+		trigger->u.syscall.syscall_id = i;
+		trigger->u.syscall.is_compat = is_compat;
+	}
+end:
+	return ret;
+
+}
+
+int lttng_syscals_create_matching_triggers(struct lttng_trigger_enabler *trigger_enabler, void *filter)
+{
+	int ret;
+
+	ret = create_matching_triggers(trigger_enabler, filter, sc_table,
+		ARRAY_SIZE(sc_table), false);
+	if (ret)
+		goto end;
+
+	ret = create_matching_triggers(trigger_enabler, filter, compat_sc_table,
+		ARRAY_SIZE(compat_sc_table), true);
+end:
+	return ret;
+}
+
+/*
+ * Unregister the syscall trigger probes from the callsites.
+ */
+int lttng_syscalls_unregister_trigger(struct lttng_trigger_group *trigger_group)
+{
+	int ret;
+
+	/*
+	 * Only register the trigger probe on the `sys_enter` callsite for now.
+	 * At the moment, we don't think it's desirable to have one fired
+	 * trigger for the entry and one for the exit of a syscall.
+	 */
+	if (trigger_group->sys_enter_registered) {
+		ret = lttng_wrapper_tracepoint_probe_unregister("sys_enter",
+				(void *) syscall_entry_trigger_probe, trigger_group);
+		if (ret)
+			return ret;
+		trigger_group->sys_enter_registered = 0;
+	}
+
+	kfree(trigger_group->trigger_syscall_dispatch);
+#ifdef CONFIG_COMPAT
+	kfree(trigger_group->trigger_compat_syscall_dispatch);
+#endif
+	return 0;
+}
+
 int lttng_syscalls_unregister_event(struct lttng_channel *chan)
 {
 	int ret;
@@ -1056,6 +1243,22 @@ error:
 	return ret;
 }
 
+int lttng_syscall_filter_enable_trigger(struct lttng_trigger *trigger)
+{
+	struct lttng_trigger_group *group = trigger->group;
+	unsigned int syscall_id = trigger->u.syscall.syscall_id;
+	struct list_head *dispatch_list;
+
+	if (trigger->u.syscall.is_compat)
+		dispatch_list = &group->trigger_compat_syscall_dispatch[syscall_id];
+	else
+		dispatch_list = &group->trigger_syscall_dispatch[syscall_id];
+
+	list_add_rcu(&trigger->u.syscall.node, dispatch_list);
+
+	return 0;
+}
+
 int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
 		const char *name)
 {
@@ -1122,6 +1325,12 @@ error:
 	if (!chan->sc_filter)
 		kfree(filter);
 	return ret;
+}
+
+int lttng_syscall_filter_disable_trigger(struct lttng_trigger *trigger)
+{
+	list_del_rcu(&trigger->u.syscall.node);
+	return 0;
 }
 
 static
