@@ -388,14 +388,14 @@ static void syscall_entry_unknown(struct lttng_event *event,
 void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 {
 	struct lttng_channel *chan = __data;
+	struct lttng_syscall_filter *filter;
 	struct lttng_event *event, *unknown_event;
 	const struct trace_syscall_entry *table, *entry;
 	size_t table_len;
 
-	if (unlikely(in_compat_syscall())) {
-		struct lttng_syscall_filter *filter;
+	filter = lttng_rcu_dereference(chan->sc_filter);
 
-		filter = lttng_rcu_dereference(chan->sc_filter);
+	if (unlikely(in_compat_syscall())) {
 		if (filter) {
 			if (id < 0 || id >= NR_compat_syscalls
 				|| !test_bit(id, filter->sc_compat)) {
@@ -407,9 +407,6 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 		table_len = ARRAY_SIZE(compat_sc_table);
 		unknown_event = chan->sc_compat_unknown;
 	} else {
-		struct lttng_syscall_filter *filter;
-
-		filter = lttng_rcu_dereference(chan->sc_filter);
 		if (filter) {
 			if (id < 0 || id >= NR_syscalls
 				|| !test_bit(id, filter->sc)) {
@@ -540,16 +537,16 @@ static void syscall_exit_unknown(struct lttng_event *event,
 void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 {
 	struct lttng_channel *chan = __data;
+	struct lttng_syscall_filter *filter;
 	struct lttng_event *event, *unknown_event;
 	const struct trace_syscall_entry *table, *entry;
 	size_t table_len;
 	long id;
 
+	filter = lttng_rcu_dereference(chan->sc_filter);
+
 	id = syscall_get_nr(current, regs);
 	if (unlikely(in_compat_syscall())) {
-		struct lttng_syscall_filter *filter;
-
-		filter = lttng_rcu_dereference(chan->sc_filter);
 		if (filter) {
 			if (id < 0 || id >= NR_compat_syscalls
 				|| !test_bit(id, filter->sc_compat)) {
@@ -561,9 +558,6 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 		table_len = ARRAY_SIZE(compat_sc_exit_table);
 		unknown_event = chan->compat_sc_exit_unknown;
 	} else {
-		struct lttng_syscall_filter *filter;
-
-		filter = lttng_rcu_dereference(chan->sc_filter);
 		if (filter) {
 			if (id < 0 || id >= NR_syscalls
 				|| !test_bit(id, filter->sc)) {
