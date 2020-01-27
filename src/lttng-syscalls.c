@@ -951,14 +951,12 @@ int get_syscall_nr(const char *syscall_name)
 
 	for (i = 0; i < ARRAY_SIZE(sc_table); i++) {
 		const struct trace_syscall_entry *entry;
-		const char *it_name;
 
 		entry = &sc_table[i];
 		if (!entry->desc)
 			continue;
-		it_name = entry->desc->name;
-		it_name += strlen(SYSCALL_ENTRY_STR);
-		if (!strcmp(syscall_name, it_name)) {
+
+		if (!strcmp(syscall_name, entry->desc->name)) {
 			syscall_nr = i;
 			break;
 		}
@@ -974,14 +972,12 @@ int get_compat_syscall_nr(const char *syscall_name)
 
 	for (i = 0; i < ARRAY_SIZE(compat_sc_table); i++) {
 		const struct trace_syscall_entry *entry;
-		const char *it_name;
 
 		entry = &compat_sc_table[i];
 		if (!entry->desc)
 			continue;
-		it_name = entry->desc->name;
-		it_name += strlen(COMPAT_SYSCALL_ENTRY_STR);
-		if (!strcmp(syscall_name, it_name)) {
+
+		if (!strcmp(syscall_name, entry->desc->name)) {
 			syscall_nr = i;
 			break;
 		}
