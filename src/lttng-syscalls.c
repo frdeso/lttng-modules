@@ -59,9 +59,9 @@ enum sc_type {
 #define COMPAT_SYSCALL_EXIT_STR		__stringify(COMPAT_SYSCALL_EXIT_TOK)
 
 static
-void syscall_entry_probe(void *__data, struct pt_regs *regs, long id);
+void syscall_entry_event_probe(void *__data, struct pt_regs *regs, long id);
 static
-void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret);
+void syscall_exit_event_probe(void *__data, struct pt_regs *regs, long ret);
 
 /*
  * Forward declarations for old kernels.
@@ -122,7 +122,7 @@ typedef __kernel_old_time_t time_t;
 
 /* Hijack probe callback for system call enter */
 #undef TP_PROBE_CB
-#define TP_PROBE_CB(_template)		&syscall_entry_probe
+#define TP_PROBE_CB(_template)		&syscall_entry_event_probe
 #define SC_LTTNG_TRACEPOINT_EVENT(_name, _proto, _args, _fields) \
 	LTTNG_TRACEPOINT_EVENT(syscall_entry_##_name, PARAMS(_proto), PARAMS(_args), \
 		PARAMS(_fields))
@@ -158,7 +158,7 @@ typedef __kernel_old_time_t time_t;
 #undef _TRACE_SYSCALLS_POINTERS_H
 
 /* Hijack probe callback for compat system call enter */
-#define TP_PROBE_CB(_template)		&syscall_entry_probe
+#define TP_PROBE_CB(_template)		&syscall_entry_event_probe
 #define LTTNG_SC_COMPAT
 #define SC_LTTNG_TRACEPOINT_EVENT(_name, _proto, _args, _fields) \
 	LTTNG_TRACEPOINT_EVENT(compat_syscall_entry_##_name, PARAMS(_proto), PARAMS(_args), \
@@ -207,7 +207,7 @@ typedef __kernel_old_time_t time_t;
 #define sc_inout(...)		__VA_ARGS__
 
 /* Hijack probe callback for system call exit */
-#define TP_PROBE_CB(_template)		&syscall_exit_probe
+#define TP_PROBE_CB(_template)		&syscall_exit_event_probe
 #define SC_LTTNG_TRACEPOINT_EVENT(_name, _proto, _args, _fields) \
 	LTTNG_TRACEPOINT_EVENT(syscall_exit_##_name, PARAMS(_proto), PARAMS(_args), \
 		PARAMS(_fields))
@@ -242,7 +242,7 @@ typedef __kernel_old_time_t time_t;
 
 
 /* Hijack probe callback for compat system call exit */
-#define TP_PROBE_CB(_template)		&syscall_exit_probe
+#define TP_PROBE_CB(_template)		&syscall_exit_event_probe
 #define LTTNG_SC_COMPAT
 #define SC_LTTNG_TRACEPOINT_EVENT(_name, _proto, _args, _fields) \
 	LTTNG_TRACEPOINT_EVENT(compat_syscall_exit_##_name, PARAMS(_proto), PARAMS(_args), \
@@ -284,7 +284,7 @@ typedef __kernel_old_time_t time_t;
 #undef CREATE_TRACE_POINTS
 
 struct trace_syscall_entry {
-	void *func;
+	void *event_func;
 	const struct lttng_event_desc *desc;
 	const struct lttng_event_field *fields;
 	unsigned int nrargs;
@@ -300,13 +300,13 @@ struct trace_syscall_entry {
 #undef TRACE_SYSCALL_TABLE
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
-		.func = __event_probe__syscall_entry_##_template, \
+		.event_func = __event_probe__syscall_entry_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___syscall_entry_##_template, \
 		.desc = &__event_desc___syscall_entry_##_name,	\
 	},
 
-/* Syscall enter tracing table */
+/* Event syscall enter tracing table */
 static const struct trace_syscall_entry sc_table[] = {
 #include <instrumentation/syscalls/headers/syscalls_integers.h>
 #include <instrumentation/syscalls/headers/syscalls_pointers.h>
@@ -315,13 +315,13 @@ static const struct trace_syscall_entry sc_table[] = {
 #undef TRACE_SYSCALL_TABLE
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
-		.func = __event_probe__compat_syscall_entry_##_template, \
+		.event_func = __event_probe__compat_syscall_entry_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___compat_syscall_entry_##_template, \
 		.desc = &__event_desc___compat_syscall_entry_##_name, \
 	},
 
-/* Compat syscall enter table */
+/* Event compat syscall enter table */
 const struct trace_syscall_entry compat_sc_table[] = {
 #include <instrumentation/syscalls/headers/compat_syscalls_integers.h>
 #include <instrumentation/syscalls/headers/compat_syscalls_pointers.h>
@@ -337,13 +337,13 @@ const struct trace_syscall_entry compat_sc_table[] = {
 #undef TRACE_SYSCALL_TABLE
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
-		.func = __event_probe__syscall_exit_##_template, \
+		.event_func = __event_probe__syscall_exit_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___syscall_exit_##_template, \
 		.desc = &__event_desc___syscall_exit_##_name, \
 	},
 
-/* Syscall exit table */
+/* Event syscall exit table */
 static const struct trace_syscall_entry sc_exit_table[] = {
 #include <instrumentation/syscalls/headers/syscalls_integers.h>
 #include <instrumentation/syscalls/headers/syscalls_pointers.h>
@@ -352,13 +352,13 @@ static const struct trace_syscall_entry sc_exit_table[] = {
 #undef TRACE_SYSCALL_TABLE
 #define TRACE_SYSCALL_TABLE(_template, _name, _nr, _nrargs)	\
 	[ _nr ] = {						\
-		.func = __event_probe__compat_syscall_exit_##_template, \
+		.event_func = __event_probe__compat_syscall_exit_##_template, \
 		.nrargs = (_nrargs),				\
 		.fields = __event_fields___compat_syscall_exit_##_template, \
 		.desc = &__event_desc___compat_syscall_exit_##_name, \
 	},
 
-/* Compat syscall exit table */
+/* Event compat syscall exit table */
 const struct trace_syscall_entry compat_sc_exit_table[] = {
 #include <instrumentation/syscalls/headers/compat_syscalls_integers.h>
 #include <instrumentation/syscalls/headers/compat_syscalls_pointers.h>
@@ -373,7 +373,7 @@ struct lttng_syscall_filter {
 	DECLARE_BITMAP(sc_compat, NR_compat_syscalls);
 };
 
-static void syscall_entry_unknown(struct lttng_event *event,
+static void syscall_entry_event_unknown(struct lttng_event *event,
 	struct pt_regs *regs, unsigned int id)
 {
 	unsigned long args[LTTNG_SYSCALL_NR_ARGS];
@@ -385,7 +385,7 @@ static void syscall_entry_unknown(struct lttng_event *event,
 		__event_probe__syscall_entry_unknown(event, id, args);
 }
 
-void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
+void syscall_entry_event_probe(void *__data, struct pt_regs *regs, long id)
 {
 	struct lttng_channel *chan = __data;
 	struct lttng_syscall_filter *filter;
@@ -419,7 +419,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 		unknown_event = chan->sc_unknown;
 	}
 	if (unlikely(id < 0 || id >= table_len)) {
-		syscall_entry_unknown(unknown_event, regs, id);
+		syscall_entry_event_unknown(unknown_event, regs, id);
 		return;
 	}
 	if (unlikely(in_compat_syscall()))
@@ -427,7 +427,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 	else
 		event = chan->sc_table[id];
 	if (unlikely(!event)) {
-		syscall_entry_unknown(unknown_event, regs, id);
+		syscall_entry_event_unknown(unknown_event, regs, id);
 		return;
 	}
 	entry = &table[id];
@@ -436,14 +436,14 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 	switch (entry->nrargs) {
 	case 0:
 	{
-		void (*fptr)(void *__data) = entry->func;
+		void (*fptr)(void *__data) = entry->event_func;
 
 		fptr(event);
 		break;
 	}
 	case 1:
 	{
-		void (*fptr)(void *__data, unsigned long arg0) = entry->func;
+		void (*fptr)(void *__data, unsigned long arg0) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -454,7 +454,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 	{
 		void (*fptr)(void *__data,
 			unsigned long arg0,
-			unsigned long arg1) = entry->func;
+			unsigned long arg1) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -466,7 +466,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 		void (*fptr)(void *__data,
 			unsigned long arg0,
 			unsigned long arg1,
-			unsigned long arg2) = entry->func;
+			unsigned long arg2) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -479,7 +479,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 			unsigned long arg0,
 			unsigned long arg1,
 			unsigned long arg2,
-			unsigned long arg3) = entry->func;
+			unsigned long arg3) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -493,7 +493,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 			unsigned long arg1,
 			unsigned long arg2,
 			unsigned long arg3,
-			unsigned long arg4) = entry->func;
+			unsigned long arg4) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -508,7 +508,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 			unsigned long arg2,
 			unsigned long arg3,
 			unsigned long arg4,
-			unsigned long arg5) = entry->func;
+			unsigned long arg5) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -521,7 +521,7 @@ void syscall_entry_probe(void *__data, struct pt_regs *regs, long id)
 	}
 }
 
-static void syscall_exit_unknown(struct lttng_event *event,
+static void syscall_exit_event_unknown(struct lttng_event *event,
 	struct pt_regs *regs, int id, long ret)
 {
 	unsigned long args[LTTNG_SYSCALL_NR_ARGS];
@@ -534,7 +534,7 @@ static void syscall_exit_unknown(struct lttng_event *event,
 		__event_probe__syscall_exit_unknown(event, id, ret, args);
 }
 
-void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
+void syscall_exit_event_probe(void *__data, struct pt_regs *regs, long ret)
 {
 	struct lttng_channel *chan = __data;
 	struct lttng_syscall_filter *filter;
@@ -570,7 +570,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 		unknown_event = chan->sc_exit_unknown;
 	}
 	if (unlikely(id < 0 || id >= table_len)) {
-		syscall_exit_unknown(unknown_event, regs, id, ret);
+		syscall_exit_event_unknown(unknown_event, regs, id, ret);
 		return;
 	}
 	if (unlikely(in_compat_syscall()))
@@ -578,7 +578,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 	else
 		event = chan->sc_exit_table[id];
 	if (unlikely(!event)) {
-		syscall_exit_unknown(unknown_event, regs, id, ret);
+		syscall_exit_event_unknown(unknown_event, regs, id, ret);
 		return;
 	}
 	entry = &table[id];
@@ -587,7 +587,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 	switch (entry->nrargs) {
 	case 0:
 	{
-		void (*fptr)(void *__data, long ret) = entry->func;
+		void (*fptr)(void *__data, long ret) = entry->event_func;
 
 		fptr(event, ret);
 		break;
@@ -596,7 +596,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 	{
 		void (*fptr)(void *__data,
 			long ret,
-			unsigned long arg0) = entry->func;
+			unsigned long arg0) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -608,7 +608,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 		void (*fptr)(void *__data,
 			long ret,
 			unsigned long arg0,
-			unsigned long arg1) = entry->func;
+			unsigned long arg1) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -621,7 +621,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 			long ret,
 			unsigned long arg0,
 			unsigned long arg1,
-			unsigned long arg2) = entry->func;
+			unsigned long arg2) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -635,7 +635,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 			unsigned long arg0,
 			unsigned long arg1,
 			unsigned long arg2,
-			unsigned long arg3) = entry->func;
+			unsigned long arg3) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -650,7 +650,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 			unsigned long arg1,
 			unsigned long arg2,
 			unsigned long arg3,
-			unsigned long arg4) = entry->func;
+			unsigned long arg4) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -666,7 +666,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
 			unsigned long arg2,
 			unsigned long arg3,
 			unsigned long arg4,
-			unsigned long arg5) = entry->func;
+			unsigned long arg5) = entry->event_func;
 		unsigned long args[LTTNG_SYSCALL_NR_ARGS];
 
 		lttng_syscall_get_arguments(current, regs, args);
@@ -684,7 +684,7 @@ void syscall_exit_probe(void *__data, struct pt_regs *regs, long ret)
  * Should be called with sessions lock held.
  */
 static
-int fill_table(const struct trace_syscall_entry *table, size_t table_len,
+int fill_event_table(const struct trace_syscall_entry *table, size_t table_len,
 	struct lttng_event **chan_table, struct lttng_channel *chan,
 	void *filter, enum sc_type type)
 {
@@ -751,7 +751,7 @@ int fill_table(const struct trace_syscall_entry *table, size_t table_len,
 /*
  * Should be called with sessions lock held.
  */
-int lttng_syscalls_register(struct lttng_channel *chan, void *filter)
+int lttng_syscalls_register_event(struct lttng_channel *chan, void *filter)
 {
 	struct lttng_kernel_event ev;
 	int ret;
@@ -858,22 +858,22 @@ int lttng_syscalls_register(struct lttng_channel *chan, void *filter)
 		}
 	}
 
-	ret = fill_table(sc_table, ARRAY_SIZE(sc_table),
+	ret = fill_event_table(sc_table, ARRAY_SIZE(sc_table),
 			chan->sc_table, chan, filter, SC_TYPE_ENTRY);
 	if (ret)
 		return ret;
-	ret = fill_table(sc_exit_table, ARRAY_SIZE(sc_exit_table),
+	ret = fill_event_table(sc_exit_table, ARRAY_SIZE(sc_exit_table),
 			chan->sc_exit_table, chan, filter, SC_TYPE_EXIT);
 	if (ret)
 		return ret;
 
 #ifdef CONFIG_COMPAT
-	ret = fill_table(compat_sc_table, ARRAY_SIZE(compat_sc_table),
+	ret = fill_event_table(compat_sc_table, ARRAY_SIZE(compat_sc_table),
 			chan->compat_sc_table, chan, filter,
 			SC_TYPE_COMPAT_ENTRY);
 	if (ret)
 		return ret;
-	ret = fill_table(compat_sc_exit_table, ARRAY_SIZE(compat_sc_exit_table),
+	ret = fill_event_table(compat_sc_exit_table, ARRAY_SIZE(compat_sc_exit_table),
 			chan->compat_sc_exit_table, chan, filter,
 			SC_TYPE_COMPAT_EXIT);
 	if (ret)
@@ -881,7 +881,7 @@ int lttng_syscalls_register(struct lttng_channel *chan, void *filter)
 #endif
 	if (!chan->sys_enter_registered) {
 		ret = lttng_wrapper_tracepoint_probe_register("sys_enter",
-				(void *) syscall_entry_probe, chan);
+				(void *) syscall_entry_event_probe, chan);
 		if (ret)
 			return ret;
 		chan->sys_enter_registered = 1;
@@ -892,10 +892,10 @@ int lttng_syscalls_register(struct lttng_channel *chan, void *filter)
 	 */
 	if (!chan->sys_exit_registered) {
 		ret = lttng_wrapper_tracepoint_probe_register("sys_exit",
-				(void *) syscall_exit_probe, chan);
+				(void *) syscall_exit_event_probe, chan);
 		if (ret) {
 			WARN_ON_ONCE(lttng_wrapper_tracepoint_probe_unregister("sys_enter",
-				(void *) syscall_entry_probe, chan));
+				(void *) syscall_entry_event_probe, chan));
 			return ret;
 		}
 		chan->sys_exit_registered = 1;
@@ -906,7 +906,7 @@ int lttng_syscalls_register(struct lttng_channel *chan, void *filter)
 /*
  * Only called at session destruction.
  */
-int lttng_syscalls_unregister(struct lttng_channel *chan)
+int lttng_syscalls_unregister_event(struct lttng_channel *chan)
 {
 	int ret;
 
@@ -914,14 +914,14 @@ int lttng_syscalls_unregister(struct lttng_channel *chan)
 		return 0;
 	if (chan->sys_enter_registered) {
 		ret = lttng_wrapper_tracepoint_probe_unregister("sys_enter",
-				(void *) syscall_entry_probe, chan);
+				(void *) syscall_entry_event_probe, chan);
 		if (ret)
 			return ret;
 		chan->sys_enter_registered = 0;
 	}
 	if (chan->sys_exit_registered) {
 		ret = lttng_wrapper_tracepoint_probe_unregister("sys_exit",
-				(void *) syscall_exit_probe, chan);
+				(void *) syscall_exit_event_probe, chan);
 		if (ret)
 			return ret;
 		chan->sys_exit_registered = 0;
@@ -985,7 +985,7 @@ uint32_t get_sc_tables_len(void)
 	return ARRAY_SIZE(sc_table) + ARRAY_SIZE(compat_sc_table);
 }
 
-int lttng_syscall_filter_enable(struct lttng_channel *chan,
+int lttng_syscall_filter_enable_event(struct lttng_channel *chan,
 		const char *name)
 {
 	int syscall_nr, compat_syscall_nr, ret;
@@ -1049,7 +1049,7 @@ error:
 	return ret;
 }
 
-int lttng_syscall_filter_disable(struct lttng_channel *chan,
+int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
 		const char *name)
 {
 	int syscall_nr, compat_syscall_nr, ret;

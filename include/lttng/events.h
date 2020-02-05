@@ -752,32 +752,34 @@ void lttng_clock_ref(void);
 void lttng_clock_unref(void);
 
 #if defined(CONFIG_HAVE_SYSCALL_TRACEPOINTS)
-int lttng_syscalls_register(struct lttng_channel *chan, void *filter);
-int lttng_syscalls_unregister(struct lttng_channel *chan);
-int lttng_syscall_filter_enable(struct lttng_channel *chan,
+int lttng_syscalls_register_event(struct lttng_channel *chan, void *filter);
+int lttng_syscalls_unregister_event(struct lttng_channel *chan);
+int lttng_syscall_filter_enable_event(struct lttng_channel *chan,
 		const char *name);
-int lttng_syscall_filter_disable(struct lttng_channel *chan,
+int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
 		const char *name);
 long lttng_channel_syscall_mask(struct lttng_channel *channel,
 		struct lttng_kernel_syscall_mask __user *usyscall_mask);
+
 #else
-static inline int lttng_syscalls_register(struct lttng_channel *chan, void *filter)
+static inline int lttng_syscalls_register_event(
+		struct lttng_channel *chan, void *filter)
 {
 	return -ENOSYS;
 }
 
-static inline int lttng_syscalls_unregister(struct lttng_channel *chan)
+static inline int lttng_syscalls_unregister_event(struct lttng_channel *chan)
 {
 	return 0;
 }
 
-static inline int lttng_syscall_filter_enable(struct lttng_channel *chan,
+static inline int lttng_syscall_filter_enable_event(struct lttng_channel *chan,
 		const char *name)
 {
 	return -ENOSYS;
 }
 
-static inline int lttng_syscall_filter_disable(struct lttng_channel *chan,
+static inline int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
 		const char *name)
 {
 	return -ENOSYS;
