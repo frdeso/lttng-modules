@@ -110,6 +110,24 @@ struct lttng_kernel_event {
 	} u;
 } __attribute__((packed));
 
+#define LTTNG_KERNEL_TRIGGER_PADDING1	16
+#define LTTNG_KERNEL_TRIGGER_PADDING2	LTTNG_KERNEL_SYM_NAME_LEN + 32
+struct lttng_kernel_trigger {
+	uint64_t id;
+	char name[LTTNG_KERNEL_SYM_NAME_LEN];	/* event name */
+	enum lttng_kernel_instrumentation instrumentation;
+	char padding[LTTNG_KERNEL_TRIGGER_PADDING1];
+
+	/* Per instrumentation type configuration */
+	union {
+		struct lttng_kernel_kretprobe kretprobe;
+		struct lttng_kernel_kprobe kprobe;
+		struct lttng_kernel_function_tracer ftrace;
+		struct lttng_kernel_uprobe uprobe;
+		char padding[LTTNG_KERNEL_TRIGGER_PADDING2];
+	} u;
+} __attribute__((packed));
+
 struct lttng_kernel_tracer_version {
 	uint32_t major;
 	uint32_t minor;
@@ -238,6 +256,10 @@ struct lttng_kernel_tracker_args {
 #define LTTNG_KERNEL_TRACER_ABI_VERSION		\
 	_IOR(0xF6, 0x4B, struct lttng_kernel_tracer_abi_version)
 #define LTTNG_KERNEL_TRIGGER_GROUP_CREATE	_IO(0xF6, 0x4C)
+
+/* Trigger group file descriptor ioctl */
+#define LTTNG_KERNEL_TRIGGER_CREATE		\
+	_IOW(0xF6, 0x31, struct lttng_kernel_trigger)
 
 /* Session FD ioctl */
 /* lttng/abi-old.h reserve 0x50, 0x51, 0x52, and 0x53. */
