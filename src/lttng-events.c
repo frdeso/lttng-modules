@@ -37,6 +37,7 @@
 #include <lttng/kernel-version.h>
 #include <lttng/events.h>
 #include <lttng/tracer.h>
+#include <lttng/trigger-notification.h>
 #include <lttng/abi-old.h>
 #include <lttng/endian.h>
 #include <lttng/string-utils.h>
@@ -319,6 +320,8 @@ void lttng_trigger_group_destroy(struct lttng_trigger_group *trigger_group)
 		ret = _lttng_trigger_unregister(trigger);
 		WARN_ON(ret);
 	}
+
+	irq_work_sync(&trigger_group->wakeup_pending);
 
 	list_for_each_entry_safe(trigger_enabler, tmp_trigger_enabler,
 			&trigger_group->enablers_head, node)
@@ -989,6 +992,7 @@ struct lttng_trigger *_lttng_trigger_create(
 	trigger->filter = filter;
 	trigger->instrumentation = itype;
 	trigger->evtype = LTTNG_TYPE_EVENT;
+	trigger->send_notification = lttng_trigger_notification_send;
 	INIT_LIST_HEAD(&trigger->bytecode_runtime_head);
 	INIT_LIST_HEAD(&trigger->enablers_ref_head);
 
