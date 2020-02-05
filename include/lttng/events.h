@@ -638,7 +638,9 @@ struct lttng_trigger_enabler *lttng_trigger_enabler_create(
 int lttng_trigger_enabler_enable(struct lttng_trigger_enabler *trigger_enabler);
 int lttng_trigger_enabler_disable(struct lttng_trigger_enabler *trigger_enabler);
 int lttng_fix_pending_events(void);
+int lttng_fix_pending_triggers(void);
 int lttng_session_active(void);
+bool lttng_trigger_active(void);
 
 struct lttng_session *lttng_session_create(void);
 int lttng_session_enable(struct lttng_session *session);

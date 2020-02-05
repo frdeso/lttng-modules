@@ -124,6 +124,8 @@ void fixup_lazy_probes(void)
 	}
 	ret = lttng_fix_pending_events();
 	WARN_ON_ONCE(ret);
+	ret = lttng_fix_pending_triggers();
+	WARN_ON_ONCE(ret);
 	lazy_nesting--;
 }
 
@@ -173,7 +175,7 @@ int lttng_probe_register(struct lttng_probe_desc *desc)
 	 * the probe immediately, since we cannot delay event
 	 * registration because they are needed ASAP.
 	 */
-	if (lttng_session_active())
+	if (lttng_session_active() || lttng_trigger_active())
 		fixup_lazy_probes();
 end:
 	lttng_unlock_sessions();

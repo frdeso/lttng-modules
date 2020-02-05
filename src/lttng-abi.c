@@ -1760,6 +1760,7 @@ int lttng_abi_create_trigger(struct file *trigger_group_file,
 
 	switch (trigger_param->instrumentation) {
 	case LTTNG_KERNEL_TRACEPOINT:
+		break;
 	case LTTNG_KERNEL_KPROBE:
 	case LTTNG_KERNEL_UPROBE:
 	case LTTNG_KERNEL_KRETPROBE:
