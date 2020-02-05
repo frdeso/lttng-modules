@@ -59,6 +59,7 @@ static const struct file_operations lttng_proc_ops;
 #endif
 
 static const struct file_operations lttng_session_fops;
+static const struct file_operations lttng_trigger_group_fops;
 static const struct file_operations lttng_channel_fops;
 static const struct file_operations lttng_metadata_fops;
 static const struct file_operations lttng_event_fops;
@@ -102,6 +103,41 @@ file_error:
 	put_unused_fd(session_fd);
 fd_error:
 	lttng_session_destroy(session);
+	return ret;
+}
+
+static
+int lttng_abi_create_trigger_group(void)
+{
+	struct lttng_trigger_group *trigger_group;
+	struct file *trigger_group_file;
+	int trigger_group_fd, ret;
+
+	trigger_group = lttng_trigger_group_create();
+	if (!trigger_group)
+		return -ENOMEM;
+
+	trigger_group_fd = lttng_get_unused_fd();
+	if (trigger_group_fd < 0) {
+		ret = trigger_group_fd;
+		goto fd_error;
+	}
+	trigger_group_file = anon_inode_getfile("[lttng_trigger_group]",
+					  &lttng_trigger_group_fops,
+					  trigger_group, O_RDWR);
+	if (IS_ERR(trigger_group_file)) {
+		ret = PTR_ERR(trigger_group_file);
+		goto file_error;
+	}
+
+	trigger_group->file = trigger_group_file;
+	fd_install(trigger_group_fd, trigger_group_file);
+	return trigger_group_fd;
+
+file_error:
+	put_unused_fd(trigger_group_fd);
+fd_error:
+	lttng_trigger_group_destroy(trigger_group);
 	return ret;
 }
 
@@ -306,6 +342,8 @@ long lttng_abi_add_context(struct file *file,
  *		Returns after all previously running probes have completed
  *	LTTNG_KERNEL_TRACER_ABI_VERSION
  *		Returns the LTTng kernel tracer ABI version
+ *	LTTNG_KERNEL_TRIGGER_GROUP_CREATE
+ *		Returns a LTTng trigger group file descriptor
  *
  * The returned session will be deleted when its file descriptor is closed.
  */
@@ -316,6 +354,8 @@ long lttng_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 	case LTTNG_KERNEL_OLD_SESSION:
 	case LTTNG_KERNEL_SESSION:
 		return lttng_abi_create_session();
+	case LTTNG_KERNEL_TRIGGER_GROUP_CREATE:
+		return lttng_abi_create_trigger_group();
 	case LTTNG_KERNEL_OLD_TRACER_VERSION:
 	{
 		struct lttng_kernel_tracer_version v;
@@ -1354,6 +1394,35 @@ file_error:
 fd_error:
 	return ret;
 }
+
+static
+long lttng_trigger_group_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	switch (cmd) {
+	default:
+		return -ENOIOCTLCMD;
+	}
+	return 0;
+}
+
+static
+int lttng_trigger_group_release(struct inode *inode, struct file *file)
+{
+	struct lttng_trigger_group *trigger_group = file->private_data;
+
+	if (trigger_group)
+		lttng_trigger_group_destroy(trigger_group);
+	return 0;
+}
+
+static const struct file_operations lttng_trigger_group_fops = {
+	.owner = THIS_MODULE,
+	.release = lttng_trigger_group_release,
+	.unlocked_ioctl = lttng_trigger_group_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = lttng_trigger_group_ioctl,
+#endif
+};
 
 /**
  *	lttng_channel_ioctl - lttng syscall through ioctl

@@ -542,6 +542,16 @@ struct lttng_session {
 	char creation_time[LTTNG_KERNEL_SESSION_CREATION_TIME_ISO8601_LEN];
 };
 
+struct lttng_trigger_group {
+	struct file *file;		/* File associated to trigger group */
+	struct list_head node;		/* Trigger group list */
+	struct lttng_ctx *ctx;		    /* Contexts for filters. */
+	struct lttng_channel_ops *ops;
+	struct lttng_transport *transport;
+	struct channel *chan;		/* Ring buffer channel for trigger group. */
+	struct lib_ring_buffer *buf;	/* Ring buffer for trigger group. */
+};
+
 struct lttng_metadata_cache {
 	char *data;			/* Metadata cache */
 	unsigned int cache_alloc;	/* Metadata allocated size (bytes) */
@@ -576,6 +586,9 @@ void lttng_session_destroy(struct lttng_session *session);
 int lttng_session_metadata_regenerate(struct lttng_session *session);
 int lttng_session_statedump(struct lttng_session *session);
 void metadata_cache_destroy(struct kref *kref);
+
+struct lttng_trigger_group *lttng_trigger_group_create(void);
+void lttng_trigger_group_destroy(struct lttng_trigger_group *trigger_group);
 
 struct lttng_channel *lttng_channel_create(struct lttng_session *session,
 				       const char *transport_name,
