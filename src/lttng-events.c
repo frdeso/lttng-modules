@@ -802,7 +802,7 @@ struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
 	event->id = chan->free_event_id++;
 	event->instrumentation = itype;
 	event->evtype = LTTNG_TYPE_EVENT;
-	INIT_LIST_HEAD(&event->bytecode_runtime_head);
+	INIT_LIST_HEAD(&event->filter_bytecode_runtime_head);
 	INIT_LIST_HEAD(&event->enablers_ref_head);
 
 	switch (itype) {
@@ -1011,7 +1011,7 @@ struct lttng_trigger *_lttng_trigger_create(
 	trigger->instrumentation = itype;
 	trigger->evtype = LTTNG_TYPE_EVENT;
 	trigger->send_notification = lttng_trigger_notification_send;
-	INIT_LIST_HEAD(&trigger->bytecode_runtime_head);
+	INIT_LIST_HEAD(&trigger->filter_bytecode_runtime_head);
 	INIT_LIST_HEAD(&trigger->enablers_ref_head);
 
 	switch (itype) {
@@ -1905,7 +1905,7 @@ int lttng_event_enabler_ref_events(struct lttng_event_enabler *event_enabler)
 		 */
 		lttng_enabler_link_bytecode(event->desc,
 			lttng_static_ctx,
-			&event->bytecode_runtime_head,
+			&event->filter_bytecode_runtime_head,
 			lttng_event_enabler_as_enabler(event_enabler));
 
 		/* TODO: merge event context. */
@@ -1974,7 +1974,7 @@ int lttng_trigger_enabler_ref_triggers(struct lttng_trigger_enabler *trigger_ena
 		 * Link filter bytecodes if not linked yet.
 		 */
 		lttng_enabler_link_bytecode(trigger->desc,
-			lttng_static_ctx, &trigger->bytecode_runtime_head,
+			lttng_static_ctx, &trigger->filter_bytecode_runtime_head,
 			lttng_trigger_enabler_as_enabler(trigger_enabler));
 	}
 	return 0;
@@ -2071,7 +2071,7 @@ int lttng_event_enabler_disable(struct lttng_event_enabler *event_enabler)
 }
 
 static
-int lttng_enabler_attach_bytecode(struct lttng_enabler *enabler,
+int lttng_enabler_attach_filter_bytecode(struct lttng_enabler *enabler,
 		struct lttng_kernel_filter_bytecode __user *bytecode)
 {
 	struct lttng_filter_bytecode_node *bytecode_node;
@@ -2102,11 +2102,11 @@ error_free:
 	return ret;
 }
 
-int lttng_event_enabler_attach_bytecode(struct lttng_event_enabler *event_enabler,
+int lttng_event_enabler_attach_filter_bytecode(struct lttng_event_enabler *event_enabler,
 		struct lttng_kernel_filter_bytecode __user *bytecode)
 {
 	int ret;
-	ret = lttng_enabler_attach_bytecode(
+	ret = lttng_enabler_attach_filter_bytecode(
 		lttng_event_enabler_as_enabler(event_enabler), bytecode);
 	if (ret)
 		goto error;
@@ -2211,12 +2211,13 @@ int lttng_trigger_enabler_disable(struct lttng_trigger_enabler *trigger_enabler)
 	return 0;
 }
 
-int lttng_trigger_enabler_attach_bytecode(struct lttng_trigger_enabler *trigger_enabler,
+int lttng_trigger_enabler_attach_filter_bytecode(
+		struct lttng_trigger_enabler *trigger_enabler,
 		struct lttng_kernel_filter_bytecode __user *bytecode)
 {
 	int ret;
 
-	ret = lttng_enabler_attach_bytecode(
+	ret = lttng_enabler_attach_filter_bytecode(
 		lttng_trigger_enabler_as_enabler(trigger_enabler), bytecode);
 	if (ret)
 		goto error;
@@ -2330,7 +2331,7 @@ void lttng_session_sync_event_enablers(struct lttng_session *session)
 
 		/* Enable filters */
 		list_for_each_entry(runtime,
-				&event->bytecode_runtime_head, node)
+				&event->filter_bytecode_runtime_head, node)
 			lttng_filter_sync_state(runtime);
 	}
 }
@@ -2413,7 +2414,7 @@ void lttng_trigger_group_sync_enablers(struct lttng_trigger_group *trigger_group
 
 		/* Enable filters */
 		list_for_each_entry(runtime,
-				&trigger->bytecode_runtime_head, node)
+				&trigger->filter_bytecode_runtime_head, node)
 			lttng_filter_sync_state(runtime);
 	}
 }

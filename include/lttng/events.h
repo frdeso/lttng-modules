@@ -324,7 +324,7 @@ struct lttng_event {
 	struct hlist_node hlist;	/* session ht of events */
 	int registered;			/* has reg'd tracepoint probe */
 	/* list of struct lttng_bytecode_runtime, sorted by seqnum */
-	struct list_head bytecode_runtime_head;
+	struct list_head filter_bytecode_runtime_head;
 	int has_enablers_without_bytecode;
 };
 
@@ -349,7 +349,7 @@ struct lttng_trigger {
 	struct list_head enablers_ref_head;
 	struct hlist_node hlist;	/* session ht of triggers */
 	/* list of struct lttng_bytecode_runtime, sorted by seqnum */
-	struct list_head bytecode_runtime_head;
+	struct list_head filter_bytecode_runtime_head;
 	int has_enablers_without_bytecode;
 
 	void (*send_notification)(struct lttng_trigger *trigger);
@@ -838,9 +838,9 @@ static inline int lttng_syscall_filter_disable_trigger(struct lttng_trigger_grou
 #endif
 
 void lttng_filter_sync_state(struct lttng_bytecode_runtime *runtime);
-int lttng_event_enabler_attach_bytecode(struct lttng_event_enabler *event_enabler,
+int lttng_event_enabler_attach_filter_bytecode(struct lttng_event_enabler *event_enabler,
 		struct lttng_kernel_filter_bytecode __user *bytecode);
-int lttng_trigger_enabler_attach_bytecode(struct lttng_trigger_enabler *trigger_enabler,
+int lttng_trigger_enabler_attach_filter_bytecode(struct lttng_trigger_enabler *trigger_enabler,
 		struct lttng_kernel_filter_bytecode __user *bytecode);
 
 void lttng_enabler_link_bytecode(const struct lttng_event_desc *event_desc,
