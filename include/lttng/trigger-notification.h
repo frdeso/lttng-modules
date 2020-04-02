@@ -10,6 +10,8 @@
 
 #include <lttng/events.h>
 
-void lttng_trigger_notification_send(struct lttng_trigger *trigger);
+void lttng_trigger_notification_send(struct lttng_trigger *trigger,
+		struct lttng_probe_ctx *lttng_probe_ctx,
+		const char *stack_data);
 
 #endif /* _LTTNG_TRIGGER_NOTIFICATION_H */

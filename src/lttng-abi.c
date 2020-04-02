@@ -1710,6 +1710,20 @@ long lttng_trigger_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 			WARN_ON_ONCE(1);
 			return -ENOSYS;
 		}
+
+	case LTTNG_KERNEL_CAPTURE:
+		switch (*evtype) {
+		case LTTNG_TYPE_EVENT:
+			return -EINVAL;
+		case LTTNG_TYPE_ENABLER:
+			trigger_enabler = file->private_data;
+			return lttng_trigger_enabler_attach_capture_bytecode(
+				trigger_enabler,
+				(struct lttng_kernel_capture_bytecode __user *) arg);
+		default:
+			WARN_ON_ONCE(1);
+			return -ENOSYS;
+		}
 	case LTTNG_KERNEL_ADD_CALLSITE:
 		switch (*evtype) {
 		case LTTNG_TYPE_EVENT:

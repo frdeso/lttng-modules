@@ -128,6 +128,13 @@ struct lttng_kernel_trigger {
 	} u;
 } __attribute__((packed));
 
+#define LTTNG_KERNEL_TRIGGER_NOTIFICATION_PADDING 32
+struct lttng_kernel_trigger_notification {
+	uint64_t id;
+	uint16_t capture_buf_size;
+	char padding[LTTNG_KERNEL_TRIGGER_NOTIFICATION_PADDING];
+} __attribute__((packed));
+
 struct lttng_kernel_tracer_version {
 	uint32_t major;
 	uint32_t minor;
@@ -227,6 +234,14 @@ struct lttng_kernel_filter_bytecode {
 	char data[0];
 } __attribute__((packed));
 
+#define LTTNG_KERNEL_CAPTURE_BYTECODE_MAX_LEN		65536
+struct lttng_kernel_capture_bytecode {
+	uint32_t len;
+	uint32_t reloc_offset;
+	uint64_t seqnum;
+	char data[0];
+} __attribute__((packed));
+
 enum lttng_kernel_tracker_type {
 	LTTNG_KERNEL_TRACKER_UNKNOWN		= -1,
 
@@ -262,6 +277,7 @@ struct lttng_kernel_tracker_args {
 	_IO(0xF6, 0x30)
 #define LTTNG_KERNEL_TRIGGER_CREATE		\
 	_IOW(0xF6, 0x31, struct lttng_kernel_trigger)
+#define LTTNG_KERNEL_CAPTURE _IO(0xF6, 0x32)
 
 /* Session FD ioctl */
 /* lttng/abi-old.h reserve 0x50, 0x51, 0x52, and 0x53. */

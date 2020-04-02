@@ -1008,11 +1008,13 @@ struct lttng_trigger *_lttng_trigger_create(
 	}
 	trigger->group = trigger_group;
 	trigger->id = id;
+	trigger->num_captures = 0;
 	trigger->filter = filter;
 	trigger->instrumentation = itype;
 	trigger->evtype = LTTNG_TYPE_EVENT;
 	trigger->send_notification = lttng_trigger_notification_send;
 	INIT_LIST_HEAD(&trigger->filter_bytecode_runtime_head);
+	INIT_LIST_HEAD(&trigger->capture_bytecode_runtime_head);
 	INIT_LIST_HEAD(&trigger->enablers_ref_head);
 
 	switch (itype) {
@@ -1977,6 +1979,13 @@ int lttng_trigger_enabler_ref_triggers(struct lttng_trigger_enabler *trigger_ena
 		lttng_enabler_link_bytecode(trigger->desc,
 			lttng_static_ctx, &trigger->filter_bytecode_runtime_head,
 			&lttng_trigger_enabler_as_enabler(trigger_enabler)->filter_bytecode_head);
+
+		/* Link capture bytecodes if not linked yet. */
+		lttng_enabler_link_bytecode(trigger->desc,
+			lttng_static_ctx, &trigger->capture_bytecode_runtime_head,
+			&trigger_enabler->capture_bytecode_head);
+
+		trigger->num_captures = trigger_enabler->num_captures;
 	}
 	return 0;
 }
@@ -2175,8 +2184,10 @@ struct lttng_trigger_enabler *lttng_trigger_enabler_create(
 
 	trigger_enabler->base.format_type = format_type;
 	INIT_LIST_HEAD(&trigger_enabler->base.filter_bytecode_head);
+	INIT_LIST_HEAD(&trigger_enabler->capture_bytecode_head);
 
 	trigger_enabler->id = trigger_param->id;
+	trigger_enabler->num_captures = 0;
 
 	memcpy(&trigger_enabler->base.event_param.name, trigger_param->name,
 		sizeof(trigger_enabler->base.event_param.name));
@@ -2228,6 +2239,48 @@ int lttng_trigger_enabler_attach_filter_bytecode(
 	return 0;
 
 error:
+	return ret;
+}
+
+int lttng_trigger_enabler_attach_capture_bytecode(
+		struct lttng_trigger_enabler *trigger_enabler,
+		struct lttng_kernel_capture_bytecode __user *bytecode)
+{
+	struct lttng_bytecode_node *bytecode_node;
+	struct lttng_enabler *enabler =
+			lttng_trigger_enabler_as_enabler(trigger_enabler);
+	uint32_t bytecode_len;
+	int ret;
+
+	ret = get_user(bytecode_len, &bytecode->len);
+	if (ret)
+		return ret;
+
+	bytecode_node = kzalloc(sizeof(*bytecode_node) + bytecode_len,
+			GFP_KERNEL);
+	if (!bytecode_node)
+		return -ENOMEM;
+
+	ret = copy_from_user(&bytecode_node->bc, bytecode,
+		sizeof(*bytecode) + bytecode_len);
+	if (ret)
+		goto error_free;
+
+	bytecode_node->type = LTTNG_BYTECODE_NODE_TYPE_CAPTURE;
+	bytecode_node->enabler = enabler;
+
+	/* Enforce length based on allocated size */
+	bytecode_node->bc.len = bytecode_len;
+	list_add_tail(&bytecode_node->node, &trigger_enabler->capture_bytecode_head);
+
+	trigger_enabler->num_captures++;
+
+	lttng_trigger_group_sync_enablers(trigger_enabler->group);
+	goto end;
+
+error_free:
+	kfree(bytecode_node);
+end:
 	return ret;
 }
 
@@ -2418,6 +2471,11 @@ void lttng_trigger_group_sync_enablers(struct lttng_trigger_group *trigger_group
 		list_for_each_entry(runtime,
 				&trigger->filter_bytecode_runtime_head, node)
 			lttng_bytecode_filter_sync_state(runtime);
+
+		/* Enable captures */
+		list_for_each_entry(runtime,
+				&trigger->capture_bytecode_runtime_head, node)
+			lttng_bytecode_capture_sync_state(runtime);
 	}
 }
 

@@ -73,7 +73,7 @@ int lttng_uprobes_trigger_handler_pre(struct uprobe_consumer *uc, struct pt_regs
 	if (unlikely(!READ_ONCE(trigger->enabled)))
 		return 0;
 
-	trigger->send_notification(trigger);
+	trigger->send_notification(trigger, NULL, NULL);
 	return 0;
 }
 

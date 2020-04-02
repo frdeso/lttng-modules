@@ -58,7 +58,7 @@ int lttng_kprobes_trigger_handler_pre(struct kprobe *p, struct pt_regs *regs)
 	if (unlikely(!READ_ONCE(trigger->enabled)))
 		return 0;
 
-	trigger->send_notification(trigger);
+	trigger->send_notification(trigger, NULL, NULL);
 
 	return 0;
 }
