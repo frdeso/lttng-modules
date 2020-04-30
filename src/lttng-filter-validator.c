@@ -127,6 +127,7 @@ int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
 			}
 			break;
 		case REG_S64:
+		case REG_U64:
 			goto error_mismatch;
 		}
 		break;
@@ -144,10 +145,12 @@ int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
 			break;
 		case REG_STAR_GLOB_STRING:
 		case REG_S64:
+		case REG_U64:
 			goto error_mismatch;
 		}
 		break;
 	case REG_S64:
+	case REG_U64:
 		switch (vstack_bx(stack)->type) {
 		default:
 		case REG_DOUBLE:
@@ -158,6 +161,7 @@ int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
 		case REG_STAR_GLOB_STRING:
 			goto error_mismatch;
 		case REG_S64:
+		case REG_U64:
 			break;
 		}
 		break;
@@ -170,6 +174,7 @@ int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
 		case REG_STRING:
 		case REG_STAR_GLOB_STRING:
 		case REG_S64:
+		case REG_U64:
 			goto unknown;
 		}
 		break;
@@ -218,10 +223,12 @@ int bin_op_bitwise_check(struct vstack *stack, filter_opcode_t opcode,
 		case REG_STRING:
 		case REG_STAR_GLOB_STRING:
 		case REG_S64:
+		case REG_U64:
 			goto unknown;
 		}
 		break;
 	case REG_S64:
+	case REG_U64:
 		switch (vstack_bx(stack)->type) {
 		default:
 		case REG_DOUBLE:
@@ -229,6 +236,7 @@ int bin_op_bitwise_check(struct vstack *stack, filter_opcode_t opcode,
 		case REG_TYPE_UNKNOWN:
 			goto unknown;
 		case REG_S64:
+		case REG_U64:
 			break;
 		}
 		break;
@@ -709,8 +717,20 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ret = -EINVAL;
 			goto end;
 		}
-		if (vstack_ax(stack)->type != REG_S64
-				|| vstack_bx(stack)->type != REG_S64) {
+		switch (vstack_ax(stack)->type) {
+		case REG_S64:
+		case REG_U64:
+			break;
+		default:
+			printk(KERN_WARNING "LTTng: filter: Unexpected register type for s64 comparator\n");
+			ret = -EINVAL;
+			goto end;
+		}
+		switch (vstack_bx(stack)->type) {
+		case REG_S64:
+		case REG_U64:
+			break;
+		default:
 			printk(KERN_WARNING "LTTng: filter: Unexpected register type for s64 comparator\n");
 			ret = -EINVAL;
 			goto end;
@@ -767,6 +787,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ret = -EINVAL;
 			goto end;
 		case REG_S64:
+		case REG_U64:
 		case REG_TYPE_UNKNOWN:
 			break;
 		}
@@ -792,7 +813,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ret = -EINVAL;
 			goto end;
 		case REG_S64:
-			break;
+		case REG_U64:
 		case REG_TYPE_UNKNOWN:
 			break;
 		}
@@ -808,7 +829,8 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ret = -EINVAL;
 			goto end;
 		}
-		if (vstack_ax(stack)->type != REG_S64) {
+		if (vstack_ax(stack)->type != REG_S64 &&
+				vstack_ax(stack)->type != REG_U64) {
 			printk(KERN_WARNING "LTTng: filter: Invalid register type\n");
 			ret = -EINVAL;
 			goto end;
@@ -827,7 +849,8 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ret = -EINVAL;
 			goto end;
 		}
-		if (vstack_ax(stack)->type != REG_S64) {
+		if (vstack_ax(stack)->type != REG_S64 &&
+				vstack_ax(stack)->type != REG_U64) {
 			printk(KERN_WARNING "LTTng: filter: Logical comparator expects S64 register\n");
 			ret = -EINVAL;
 			goto end;
@@ -1156,6 +1179,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 		case REG_TYPE_UNKNOWN:
 			break;
 		default:
@@ -1178,6 +1202,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 			break;
 		default:
 		case REG_TYPE_UNKNOWN:
@@ -1250,6 +1275,36 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	case FILTER_OP_LT_S64:
 	case FILTER_OP_GE_S64:
 	case FILTER_OP_LE_S64:
+	{
+		/* Pop 2, push 1 */
+		if (vstack_pop(stack)) {
+			ret = -EINVAL;
+			goto end;
+		}
+		if (!vstack_ax(stack)) {
+			printk(KERN_WARNING "Empty stack\n");
+			ret = -EINVAL;
+			goto end;
+		}
+		switch (vstack_ax(stack)->type) {
+		case REG_S64:
+		case REG_U64:
+		case REG_DOUBLE:
+		case REG_STRING:
+		case REG_STAR_GLOB_STRING:
+		case REG_TYPE_UNKNOWN:
+			break;
+		default:
+			printk(KERN_WARNING "Unexpected register type %d for operation\n",
+				(int) vstack_ax(stack)->type);
+			ret = -EINVAL;
+			goto end;
+		}
+
+		vstack_ax(stack)->type = REG_S64;
+		next_pc += sizeof(struct binary_op);
+		break;
+	}
 	case FILTER_OP_BIT_RSHIFT:
 	case FILTER_OP_BIT_LSHIFT:
 	case FILTER_OP_BIT_AND:
@@ -1268,6 +1323,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 		case REG_DOUBLE:
 		case REG_STRING:
 		case REG_STAR_GLOB_STRING:
@@ -1280,7 +1336,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 			goto end;
 		}
 
-		vstack_ax(stack)->type = REG_S64;
+		vstack_ax(stack)->type = REG_U64;
 		next_pc += sizeof(struct binary_op);
 		break;
 	}
@@ -1297,6 +1353,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 		case REG_TYPE_UNKNOWN:
 			break;
 		default:
@@ -1323,6 +1380,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 			break;
 		default:
 			printk(KERN_WARNING "LTTng: filter: Unexpected register type %d for operation\n",
@@ -1331,7 +1389,6 @@ int exec_insn(struct bytecode_runtime *bytecode,
 			goto end;
 		}
 
-		vstack_ax(stack)->type = REG_S64;
 		next_pc += sizeof(struct unary_op);
 		break;
 	}
@@ -1346,6 +1403,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 		case REG_TYPE_UNKNOWN:
 			break;
 		default:
@@ -1355,7 +1413,6 @@ int exec_insn(struct bytecode_runtime *bytecode,
 			goto end;
 		}
 
-		vstack_ax(stack)->type = REG_S64;
 		next_pc += sizeof(struct unary_op);
 		break;
 	}
@@ -1370,6 +1427,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 		case REG_TYPE_UNKNOWN:
 			break;
 		case REG_DOUBLE:
@@ -1380,7 +1438,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 			goto end;
 		}
 
-		vstack_ax(stack)->type = REG_S64;
+		vstack_ax(stack)->type = REG_U64;
 		next_pc += sizeof(struct unary_op);
 		break;
 	}
@@ -1408,6 +1466,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		/* There is always a cast-to-s64 operation before a or/and op. */
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 			break;
 		default:
 			printk(KERN_WARNING "LTTng: filter: Incorrect register type %d for operation\n",
@@ -1515,6 +1574,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		}
 		switch (vstack_ax(stack)->type) {
 		case REG_S64:
+		case REG_U64:
 		case REG_DOUBLE:
 		case REG_TYPE_UNKNOWN:
 			break;
@@ -1572,6 +1632,22 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	case FILTER_OP_LOAD_FIELD_S16:
 	case FILTER_OP_LOAD_FIELD_S32:
 	case FILTER_OP_LOAD_FIELD_S64:
+	{
+		/* Pop 1, push 1 */
+		if (!vstack_ax(stack)) {
+			printk(KERN_WARNING "Empty stack\n\n");
+			ret = -EINVAL;
+			goto end;
+		}
+		if (vstack_ax(stack)->type != REG_PTR) {
+			printk(KERN_WARNING "Expecting pointer on top of stack\n\n");
+			ret = -EINVAL;
+			goto end;
+		}
+		vstack_ax(stack)->type = REG_S64;
+		next_pc += sizeof(struct load_op);
+		break;
+	}
 	case FILTER_OP_LOAD_FIELD_U8:
 	case FILTER_OP_LOAD_FIELD_U16:
 	case FILTER_OP_LOAD_FIELD_U32:
@@ -1588,11 +1664,10 @@ int exec_insn(struct bytecode_runtime *bytecode,
 			ret = -EINVAL;
 			goto end;
 		}
-		vstack_ax(stack)->type = REG_S64;
+		vstack_ax(stack)->type = REG_U64;
 		next_pc += sizeof(struct load_op);
 		break;
 	}
-
 	case FILTER_OP_LOAD_FIELD_STRING:
 	case FILTER_OP_LOAD_FIELD_SEQUENCE:
 	{
