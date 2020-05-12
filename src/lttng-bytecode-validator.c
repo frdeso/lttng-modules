@@ -1,8 +1,8 @@
 /* SPDX-License-Identifier: MIT
  *
- * lttng-filter-validator.c
+ * lttng-bytecode-validator.c
  *
- * LTTng modules filter bytecode validator.
+ * LTTng modules bytecode bytecode validator.
  *
  * Copyright (C) 2010-2016 Mathieu Desnoyers <mathieu.desnoyers@efficios.com>
  */
@@ -12,7 +12,7 @@
 #include <linux/slab.h>
 
 #include <wrapper/list.h>
-#include <lttng/filter.h>
+#include <lttng/lttng-bytecode.h>
 
 #define MERGE_POINT_TABLE_BITS		7
 #define MERGE_POINT_TABLE_SIZE		(1U << MERGE_POINT_TABLE_BITS)
@@ -66,7 +66,7 @@ int merge_point_add_check(struct mp_table *mp_table, unsigned long target_pc,
 	struct mp_node *lookup_node;
 	int found = 0;
 
-	dbg_printk("Filter: adding merge point at offset %lu, hash %lu\n",
+	dbg_printk("Bytecode: adding merge point at offset %lu, hash %lu\n",
 			target_pc, hash);
 	mp_node = kzalloc(sizeof(struct mp_node), GFP_KERNEL);
 	if (!mp_node)
@@ -83,7 +83,7 @@ int merge_point_add_check(struct mp_table *mp_table, unsigned long target_pc,
 	}
 	if (found) {
 		/* Key already present */
-		dbg_printk("Filter: compare merge points for offset %lu, hash %lu\n",
+		dbg_printk("Bytecode: compare merge points for offset %lu, hash %lu\n",
 				target_pc, hash);
 		kfree(mp_node);
 		if (merge_points_compare(stack, &lookup_node->stack)) {
@@ -101,7 +101,7 @@ int merge_point_add_check(struct mp_table *mp_table, unsigned long target_pc,
  * Binary comparators use top of stack and top of stack -1.
  */
 static
-int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
+int bin_op_compare_check(struct vstack *stack, const bytecode_opcode_t opcode,
 		const char *str)
 {
 	if (unlikely(!vstack_ax(stack) || !vstack_bx(stack)))
@@ -122,7 +122,7 @@ int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
 		case REG_STRING:
 			break;
 		case REG_STAR_GLOB_STRING:
-			if (opcode != FILTER_OP_EQ && opcode != FILTER_OP_NE) {
+			if (opcode != BYTECODE_OP_EQ && opcode != BYTECODE_OP_NE) {
 				goto error_mismatch;
 			}
 			break;
@@ -139,7 +139,7 @@ int bin_op_compare_check(struct vstack *stack, const filter_opcode_t opcode,
 		case REG_TYPE_UNKNOWN:
 			goto unknown;
 		case REG_STRING:
-			if (opcode != FILTER_OP_EQ && opcode != FILTER_OP_NE) {
+			if (opcode != BYTECODE_OP_EQ && opcode != BYTECODE_OP_NE) {
 				goto error_mismatch;
 			}
 			break;
@@ -203,7 +203,7 @@ error_type:
  * (unknown), negative error value on error.
  */
 static
-int bin_op_bitwise_check(struct vstack *stack, filter_opcode_t opcode,
+int bin_op_bitwise_check(struct vstack *stack, bytecode_opcode_t opcode,
 		const char *str)
 {
 	if (unlikely(!vstack_ax(stack) || !vstack_bx(stack)))
@@ -283,18 +283,18 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 {
 	int ret = 0;
 
-	switch (*(filter_opcode_t *) pc) {
-	case FILTER_OP_UNKNOWN:
+	switch (*(bytecode_opcode_t *) pc) {
+	case BYTECODE_OP_UNKNOWN:
 	default:
 	{
 		printk(KERN_WARNING "unknown bytecode op %u\n",
-			(unsigned int) *(filter_opcode_t *) pc);
+			(unsigned int) *(bytecode_opcode_t *) pc);
 		ret = -EINVAL;
 		break;
 	}
 
-	case FILTER_OP_RETURN:
-	case FILTER_OP_RETURN_S64:
+	case BYTECODE_OP_RETURN:
+	case BYTECODE_OP_RETURN_S64:
 	{
 		if (unlikely(pc + sizeof(struct return_op)
 				> start_pc + bytecode->len)) {
@@ -304,69 +304,69 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	}
 
 	/* binary */
-	case FILTER_OP_MUL:
-	case FILTER_OP_DIV:
-	case FILTER_OP_MOD:
-	case FILTER_OP_PLUS:
-	case FILTER_OP_MINUS:
-	case FILTER_OP_EQ_DOUBLE:
-	case FILTER_OP_NE_DOUBLE:
-	case FILTER_OP_GT_DOUBLE:
-	case FILTER_OP_LT_DOUBLE:
-	case FILTER_OP_GE_DOUBLE:
-	case FILTER_OP_LE_DOUBLE:
+	case BYTECODE_OP_MUL:
+	case BYTECODE_OP_DIV:
+	case BYTECODE_OP_MOD:
+	case BYTECODE_OP_PLUS:
+	case BYTECODE_OP_MINUS:
+	case BYTECODE_OP_EQ_DOUBLE:
+	case BYTECODE_OP_NE_DOUBLE:
+	case BYTECODE_OP_GT_DOUBLE:
+	case BYTECODE_OP_LT_DOUBLE:
+	case BYTECODE_OP_GE_DOUBLE:
+	case BYTECODE_OP_LE_DOUBLE:
 	/* Floating point */
-	case FILTER_OP_EQ_DOUBLE_S64:
-	case FILTER_OP_NE_DOUBLE_S64:
-	case FILTER_OP_GT_DOUBLE_S64:
-	case FILTER_OP_LT_DOUBLE_S64:
-	case FILTER_OP_GE_DOUBLE_S64:
-	case FILTER_OP_LE_DOUBLE_S64:
-	case FILTER_OP_EQ_S64_DOUBLE:
-	case FILTER_OP_NE_S64_DOUBLE:
-	case FILTER_OP_GT_S64_DOUBLE:
-	case FILTER_OP_LT_S64_DOUBLE:
-	case FILTER_OP_GE_S64_DOUBLE:
-	case FILTER_OP_LE_S64_DOUBLE:
-	case FILTER_OP_LOAD_FIELD_REF_DOUBLE:
-	case FILTER_OP_GET_CONTEXT_REF_DOUBLE:
-	case FILTER_OP_LOAD_DOUBLE:
-	case FILTER_OP_CAST_DOUBLE_TO_S64:
-	case FILTER_OP_UNARY_PLUS_DOUBLE:
-	case FILTER_OP_UNARY_MINUS_DOUBLE:
-	case FILTER_OP_UNARY_NOT_DOUBLE:
+	case BYTECODE_OP_EQ_DOUBLE_S64:
+	case BYTECODE_OP_NE_DOUBLE_S64:
+	case BYTECODE_OP_GT_DOUBLE_S64:
+	case BYTECODE_OP_LT_DOUBLE_S64:
+	case BYTECODE_OP_GE_DOUBLE_S64:
+	case BYTECODE_OP_LE_DOUBLE_S64:
+	case BYTECODE_OP_EQ_S64_DOUBLE:
+	case BYTECODE_OP_NE_S64_DOUBLE:
+	case BYTECODE_OP_GT_S64_DOUBLE:
+	case BYTECODE_OP_LT_S64_DOUBLE:
+	case BYTECODE_OP_GE_S64_DOUBLE:
+	case BYTECODE_OP_LE_S64_DOUBLE:
+	case BYTECODE_OP_LOAD_FIELD_REF_DOUBLE:
+	case BYTECODE_OP_GET_CONTEXT_REF_DOUBLE:
+	case BYTECODE_OP_LOAD_DOUBLE:
+	case BYTECODE_OP_CAST_DOUBLE_TO_S64:
+	case BYTECODE_OP_UNARY_PLUS_DOUBLE:
+	case BYTECODE_OP_UNARY_MINUS_DOUBLE:
+	case BYTECODE_OP_UNARY_NOT_DOUBLE:
 	{
 		printk(KERN_WARNING "unsupported bytecode op %u\n",
-			(unsigned int) *(filter_opcode_t *) pc);
+			(unsigned int) *(bytecode_opcode_t *) pc);
 		ret = -EINVAL;
 		break;
 	}
 
-	case FILTER_OP_EQ:
-	case FILTER_OP_NE:
-	case FILTER_OP_GT:
-	case FILTER_OP_LT:
-	case FILTER_OP_GE:
-	case FILTER_OP_LE:
-	case FILTER_OP_EQ_STRING:
-	case FILTER_OP_NE_STRING:
-	case FILTER_OP_GT_STRING:
-	case FILTER_OP_LT_STRING:
-	case FILTER_OP_GE_STRING:
-	case FILTER_OP_LE_STRING:
-	case FILTER_OP_EQ_STAR_GLOB_STRING:
-	case FILTER_OP_NE_STAR_GLOB_STRING:
-	case FILTER_OP_EQ_S64:
-	case FILTER_OP_NE_S64:
-	case FILTER_OP_GT_S64:
-	case FILTER_OP_LT_S64:
-	case FILTER_OP_GE_S64:
-	case FILTER_OP_LE_S64:
-	case FILTER_OP_BIT_RSHIFT:
-	case FILTER_OP_BIT_LSHIFT:
-	case FILTER_OP_BIT_AND:
-	case FILTER_OP_BIT_OR:
-	case FILTER_OP_BIT_XOR:
+	case BYTECODE_OP_EQ:
+	case BYTECODE_OP_NE:
+	case BYTECODE_OP_GT:
+	case BYTECODE_OP_LT:
+	case BYTECODE_OP_GE:
+	case BYTECODE_OP_LE:
+	case BYTECODE_OP_EQ_STRING:
+	case BYTECODE_OP_NE_STRING:
+	case BYTECODE_OP_GT_STRING:
+	case BYTECODE_OP_LT_STRING:
+	case BYTECODE_OP_GE_STRING:
+	case BYTECODE_OP_LE_STRING:
+	case BYTECODE_OP_EQ_STAR_GLOB_STRING:
+	case BYTECODE_OP_NE_STAR_GLOB_STRING:
+	case BYTECODE_OP_EQ_S64:
+	case BYTECODE_OP_NE_S64:
+	case BYTECODE_OP_GT_S64:
+	case BYTECODE_OP_LT_S64:
+	case BYTECODE_OP_GE_S64:
+	case BYTECODE_OP_LE_S64:
+	case BYTECODE_OP_BIT_RSHIFT:
+	case BYTECODE_OP_BIT_LSHIFT:
+	case BYTECODE_OP_BIT_AND:
+	case BYTECODE_OP_BIT_OR:
+	case BYTECODE_OP_BIT_XOR:
 	{
 		if (unlikely(pc + sizeof(struct binary_op)
 				> start_pc + bytecode->len)) {
@@ -376,13 +376,13 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	}
 
 	/* unary */
-	case FILTER_OP_UNARY_PLUS:
-	case FILTER_OP_UNARY_MINUS:
-	case FILTER_OP_UNARY_NOT:
-	case FILTER_OP_UNARY_PLUS_S64:
-	case FILTER_OP_UNARY_MINUS_S64:
-	case FILTER_OP_UNARY_NOT_S64:
-	case FILTER_OP_UNARY_BIT_NOT:
+	case BYTECODE_OP_UNARY_PLUS:
+	case BYTECODE_OP_UNARY_MINUS:
+	case BYTECODE_OP_UNARY_NOT:
+	case BYTECODE_OP_UNARY_PLUS_S64:
+	case BYTECODE_OP_UNARY_MINUS_S64:
+	case BYTECODE_OP_UNARY_NOT_S64:
+	case BYTECODE_OP_UNARY_BIT_NOT:
 	{
 		if (unlikely(pc + sizeof(struct unary_op)
 				> start_pc + bytecode->len)) {
@@ -392,8 +392,8 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	}
 
 	/* logical */
-	case FILTER_OP_AND:
-	case FILTER_OP_OR:
+	case BYTECODE_OP_AND:
+	case BYTECODE_OP_OR:
 	{
 		if (unlikely(pc + sizeof(struct logical_op)
 				> start_pc + bytecode->len)) {
@@ -403,7 +403,7 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	}
 
 	/* load field ref */
-	case FILTER_OP_LOAD_FIELD_REF:
+	case BYTECODE_OP_LOAD_FIELD_REF:
 	{
 		printk(KERN_WARNING "Unknown field ref type\n");
 		ret = -EINVAL;
@@ -411,19 +411,19 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	}
 
 	/* get context ref */
-	case FILTER_OP_GET_CONTEXT_REF:
+	case BYTECODE_OP_GET_CONTEXT_REF:
 	{
 		printk(KERN_WARNING "Unknown field ref type\n");
 		ret = -EINVAL;
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_REF_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_SEQUENCE:
-	case FILTER_OP_LOAD_FIELD_REF_USER_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_USER_SEQUENCE:
-	case FILTER_OP_LOAD_FIELD_REF_S64:
-	case FILTER_OP_GET_CONTEXT_REF_STRING:
-	case FILTER_OP_GET_CONTEXT_REF_S64:
+	case BYTECODE_OP_LOAD_FIELD_REF_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_REF_USER_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_USER_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_REF_S64:
+	case BYTECODE_OP_GET_CONTEXT_REF_STRING:
+	case BYTECODE_OP_GET_CONTEXT_REF_S64:
 	{
 		if (unlikely(pc + sizeof(struct load_op) + sizeof(struct field_ref)
 				> start_pc + bytecode->len)) {
@@ -433,8 +433,8 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	}
 
 	/* load from immediate operand */
-	case FILTER_OP_LOAD_STRING:
-	case FILTER_OP_LOAD_STAR_GLOB_STRING:
+	case BYTECODE_OP_LOAD_STRING:
+	case BYTECODE_OP_LOAD_STAR_GLOB_STRING:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		uint32_t str_len, maxlen;
@@ -454,7 +454,7 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_LOAD_S64:
+	case BYTECODE_OP_LOAD_S64:
 	{
 		if (unlikely(pc + sizeof(struct load_op) + sizeof(struct literal_numeric)
 				> start_pc + bytecode->len)) {
@@ -463,8 +463,8 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_CAST_TO_S64:
-	case FILTER_OP_CAST_NOP:
+	case BYTECODE_OP_CAST_TO_S64:
+	case BYTECODE_OP_CAST_NOP:
 	{
 		if (unlikely(pc + sizeof(struct cast_op)
 				> start_pc + bytecode->len)) {
@@ -476,28 +476,28 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 	/*
 	 * Instructions for recursive traversal through composed types.
 	 */
-	case FILTER_OP_GET_CONTEXT_ROOT:
-	case FILTER_OP_GET_APP_CONTEXT_ROOT:
-	case FILTER_OP_GET_PAYLOAD_ROOT:
-	case FILTER_OP_LOAD_FIELD:
-	case FILTER_OP_LOAD_FIELD_S8:
-	case FILTER_OP_LOAD_FIELD_S16:
-	case FILTER_OP_LOAD_FIELD_S32:
-	case FILTER_OP_LOAD_FIELD_S64:
-	case FILTER_OP_LOAD_FIELD_U8:
-	case FILTER_OP_LOAD_FIELD_U16:
-	case FILTER_OP_LOAD_FIELD_U32:
-	case FILTER_OP_LOAD_FIELD_U64:
-	case FILTER_OP_LOAD_FIELD_STRING:
-	case FILTER_OP_LOAD_FIELD_SEQUENCE:
-	case FILTER_OP_LOAD_FIELD_DOUBLE:
+	case BYTECODE_OP_GET_CONTEXT_ROOT:
+	case BYTECODE_OP_GET_APP_CONTEXT_ROOT:
+	case BYTECODE_OP_GET_PAYLOAD_ROOT:
+	case BYTECODE_OP_LOAD_FIELD:
+	case BYTECODE_OP_LOAD_FIELD_S8:
+	case BYTECODE_OP_LOAD_FIELD_S16:
+	case BYTECODE_OP_LOAD_FIELD_S32:
+	case BYTECODE_OP_LOAD_FIELD_S64:
+	case BYTECODE_OP_LOAD_FIELD_U8:
+	case BYTECODE_OP_LOAD_FIELD_U16:
+	case BYTECODE_OP_LOAD_FIELD_U32:
+	case BYTECODE_OP_LOAD_FIELD_U64:
+	case BYTECODE_OP_LOAD_FIELD_STRING:
+	case BYTECODE_OP_LOAD_FIELD_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_DOUBLE:
 		if (unlikely(pc + sizeof(struct load_op)
 				> start_pc + bytecode->len)) {
 			ret = -ERANGE;
 		}
 		break;
 
-	case FILTER_OP_GET_SYMBOL:
+	case BYTECODE_OP_GET_SYMBOL:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct get_symbol *sym = (struct get_symbol *) insn->data;
@@ -511,19 +511,19 @@ int bytecode_validate_overflow(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_SYMBOL_FIELD:
+	case BYTECODE_OP_GET_SYMBOL_FIELD:
 		printk(KERN_WARNING "Unexpected get symbol field\n");
 		ret = -EINVAL;
 		break;
 
-	case FILTER_OP_GET_INDEX_U16:
+	case BYTECODE_OP_GET_INDEX_U16:
 		if (unlikely(pc + sizeof(struct load_op) + sizeof(struct get_index_u16)
 				> start_pc + bytecode->len)) {
 			ret = -ERANGE;
 		}
 		break;
 
-	case FILTER_OP_GET_INDEX_U64:
+	case BYTECODE_OP_GET_INDEX_U64:
 		if (unlikely(pc + sizeof(struct load_op) + sizeof(struct get_index_u64)
 				> start_pc + bytecode->len)) {
 			ret = -ERANGE;
@@ -566,99 +566,99 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		char *pc)
 {
 	int ret = 0;
-	const filter_opcode_t opcode = *(filter_opcode_t *) pc;
+	const bytecode_opcode_t opcode = *(bytecode_opcode_t *) pc;
 
 	switch (opcode) {
-	case FILTER_OP_UNKNOWN:
+	case BYTECODE_OP_UNKNOWN:
 	default:
 	{
 		printk(KERN_WARNING "unknown bytecode op %u\n",
-			(unsigned int) *(filter_opcode_t *) pc);
+			(unsigned int) *(bytecode_opcode_t *) pc);
 		ret = -EINVAL;
 		goto end;
 	}
 
-	case FILTER_OP_RETURN:
-	case FILTER_OP_RETURN_S64:
+	case BYTECODE_OP_RETURN:
+	case BYTECODE_OP_RETURN_S64:
 	{
 		goto end;
 	}
 
 	/* binary */
-	case FILTER_OP_MUL:
-	case FILTER_OP_DIV:
-	case FILTER_OP_MOD:
-	case FILTER_OP_PLUS:
-	case FILTER_OP_MINUS:
+	case BYTECODE_OP_MUL:
+	case BYTECODE_OP_DIV:
+	case BYTECODE_OP_MOD:
+	case BYTECODE_OP_PLUS:
+	case BYTECODE_OP_MINUS:
 	/* Floating point */
-	case FILTER_OP_EQ_DOUBLE:
-	case FILTER_OP_NE_DOUBLE:
-	case FILTER_OP_GT_DOUBLE:
-	case FILTER_OP_LT_DOUBLE:
-	case FILTER_OP_GE_DOUBLE:
-	case FILTER_OP_LE_DOUBLE:
-	case FILTER_OP_EQ_DOUBLE_S64:
-	case FILTER_OP_NE_DOUBLE_S64:
-	case FILTER_OP_GT_DOUBLE_S64:
-	case FILTER_OP_LT_DOUBLE_S64:
-	case FILTER_OP_GE_DOUBLE_S64:
-	case FILTER_OP_LE_DOUBLE_S64:
-	case FILTER_OP_EQ_S64_DOUBLE:
-	case FILTER_OP_NE_S64_DOUBLE:
-	case FILTER_OP_GT_S64_DOUBLE:
-	case FILTER_OP_LT_S64_DOUBLE:
-	case FILTER_OP_GE_S64_DOUBLE:
-	case FILTER_OP_LE_S64_DOUBLE:
-	case FILTER_OP_UNARY_PLUS_DOUBLE:
-	case FILTER_OP_UNARY_MINUS_DOUBLE:
-	case FILTER_OP_UNARY_NOT_DOUBLE:
-	case FILTER_OP_LOAD_FIELD_REF_DOUBLE:
-	case FILTER_OP_LOAD_DOUBLE:
-	case FILTER_OP_CAST_DOUBLE_TO_S64:
-	case FILTER_OP_GET_CONTEXT_REF_DOUBLE:
+	case BYTECODE_OP_EQ_DOUBLE:
+	case BYTECODE_OP_NE_DOUBLE:
+	case BYTECODE_OP_GT_DOUBLE:
+	case BYTECODE_OP_LT_DOUBLE:
+	case BYTECODE_OP_GE_DOUBLE:
+	case BYTECODE_OP_LE_DOUBLE:
+	case BYTECODE_OP_EQ_DOUBLE_S64:
+	case BYTECODE_OP_NE_DOUBLE_S64:
+	case BYTECODE_OP_GT_DOUBLE_S64:
+	case BYTECODE_OP_LT_DOUBLE_S64:
+	case BYTECODE_OP_GE_DOUBLE_S64:
+	case BYTECODE_OP_LE_DOUBLE_S64:
+	case BYTECODE_OP_EQ_S64_DOUBLE:
+	case BYTECODE_OP_NE_S64_DOUBLE:
+	case BYTECODE_OP_GT_S64_DOUBLE:
+	case BYTECODE_OP_LT_S64_DOUBLE:
+	case BYTECODE_OP_GE_S64_DOUBLE:
+	case BYTECODE_OP_LE_S64_DOUBLE:
+	case BYTECODE_OP_UNARY_PLUS_DOUBLE:
+	case BYTECODE_OP_UNARY_MINUS_DOUBLE:
+	case BYTECODE_OP_UNARY_NOT_DOUBLE:
+	case BYTECODE_OP_LOAD_FIELD_REF_DOUBLE:
+	case BYTECODE_OP_LOAD_DOUBLE:
+	case BYTECODE_OP_CAST_DOUBLE_TO_S64:
+	case BYTECODE_OP_GET_CONTEXT_REF_DOUBLE:
 	{
 		printk(KERN_WARNING "unsupported bytecode op %u\n",
-			(unsigned int) *(filter_opcode_t *) pc);
+			(unsigned int) *(bytecode_opcode_t *) pc);
 		ret = -EINVAL;
 		goto end;
 	}
 
-	case FILTER_OP_EQ:
+	case BYTECODE_OP_EQ:
 	{
 		ret = bin_op_compare_check(stack, opcode, "==");
 		if (ret < 0)
 			goto end;
 		break;
 	}
-	case FILTER_OP_NE:
+	case BYTECODE_OP_NE:
 	{
 		ret = bin_op_compare_check(stack, opcode, "!=");
 		if (ret < 0)
 			goto end;
 		break;
 	}
-	case FILTER_OP_GT:
+	case BYTECODE_OP_GT:
 	{
 		ret = bin_op_compare_check(stack, opcode, ">");
 		if (ret < 0)
 			goto end;
 		break;
 	}
-	case FILTER_OP_LT:
+	case BYTECODE_OP_LT:
 	{
 		ret = bin_op_compare_check(stack, opcode, "<");
 		if (ret < 0)
 			goto end;
 		break;
 	}
-	case FILTER_OP_GE:
+	case BYTECODE_OP_GE:
 	{
 		ret = bin_op_compare_check(stack, opcode, ">=");
 		if (ret < 0)
 			goto end;
 		break;
 	}
-	case FILTER_OP_LE:
+	case BYTECODE_OP_LE:
 	{
 		ret = bin_op_compare_check(stack, opcode, "<=");
 		if (ret < 0)
@@ -666,12 +666,12 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_EQ_STRING:
-	case FILTER_OP_NE_STRING:
-	case FILTER_OP_GT_STRING:
-	case FILTER_OP_LT_STRING:
-	case FILTER_OP_GE_STRING:
-	case FILTER_OP_LE_STRING:
+	case BYTECODE_OP_EQ_STRING:
+	case BYTECODE_OP_NE_STRING:
+	case BYTECODE_OP_GT_STRING:
+	case BYTECODE_OP_LT_STRING:
+	case BYTECODE_OP_GE_STRING:
+	case BYTECODE_OP_LE_STRING:
 	{
 		if (!vstack_ax(stack) || !vstack_bx(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -688,8 +688,8 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 	}
 
 
-	case FILTER_OP_EQ_STAR_GLOB_STRING:
-	case FILTER_OP_NE_STAR_GLOB_STRING:
+	case BYTECODE_OP_EQ_STAR_GLOB_STRING:
+	case BYTECODE_OP_NE_STAR_GLOB_STRING:
 	{
 		if (!vstack_ax(stack) || !vstack_bx(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -705,12 +705,12 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_EQ_S64:
-	case FILTER_OP_NE_S64:
-	case FILTER_OP_GT_S64:
-	case FILTER_OP_LT_S64:
-	case FILTER_OP_GE_S64:
-	case FILTER_OP_LE_S64:
+	case BYTECODE_OP_EQ_S64:
+	case BYTECODE_OP_NE_S64:
+	case BYTECODE_OP_GT_S64:
+	case BYTECODE_OP_LT_S64:
+	case BYTECODE_OP_GE_S64:
+	case BYTECODE_OP_LE_S64:
 	{
 		if (!vstack_ax(stack) || !vstack_bx(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -738,36 +738,36 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_BIT_RSHIFT:
+	case BYTECODE_OP_BIT_RSHIFT:
 		ret = bin_op_bitwise_check(stack, opcode, ">>");
 		if (ret < 0)
 			goto end;
 		break;
-	case FILTER_OP_BIT_LSHIFT:
+	case BYTECODE_OP_BIT_LSHIFT:
 		ret = bin_op_bitwise_check(stack, opcode, "<<");
 		if (ret < 0)
 			goto end;
 		break;
-	case FILTER_OP_BIT_AND:
+	case BYTECODE_OP_BIT_AND:
 		ret = bin_op_bitwise_check(stack, opcode, "&");
 		if (ret < 0)
 			goto end;
 		break;
-	case FILTER_OP_BIT_OR:
+	case BYTECODE_OP_BIT_OR:
 		ret = bin_op_bitwise_check(stack, opcode, "|");
 		if (ret < 0)
 			goto end;
 		break;
-	case FILTER_OP_BIT_XOR:
+	case BYTECODE_OP_BIT_XOR:
 		ret = bin_op_bitwise_check(stack, opcode, "^");
 		if (ret < 0)
 			goto end;
 		break;
 
 	/* unary */
-	case FILTER_OP_UNARY_PLUS:
-	case FILTER_OP_UNARY_MINUS:
-	case FILTER_OP_UNARY_NOT:
+	case BYTECODE_OP_UNARY_PLUS:
+	case BYTECODE_OP_UNARY_MINUS:
+	case BYTECODE_OP_UNARY_NOT:
 	{
 		if (!vstack_ax(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -793,7 +793,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		}
 		break;
 	}
-	case FILTER_OP_UNARY_BIT_NOT:
+	case BYTECODE_OP_UNARY_BIT_NOT:
 	{
 		if (!vstack_ax(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -820,9 +820,9 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_UNARY_PLUS_S64:
-	case FILTER_OP_UNARY_MINUS_S64:
-	case FILTER_OP_UNARY_NOT_S64:
+	case BYTECODE_OP_UNARY_PLUS_S64:
+	case BYTECODE_OP_UNARY_MINUS_S64:
+	case BYTECODE_OP_UNARY_NOT_S64:
 	{
 		if (!vstack_ax(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -839,8 +839,8 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 	}
 
 	/* logical */
-	case FILTER_OP_AND:
-	case FILTER_OP_OR:
+	case BYTECODE_OP_AND:
+	case BYTECODE_OP_OR:
 	{
 		struct logical_op *insn = (struct logical_op *) pc;
 
@@ -867,16 +867,16 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 	}
 
 	/* load field ref */
-	case FILTER_OP_LOAD_FIELD_REF:
+	case BYTECODE_OP_LOAD_FIELD_REF:
 	{
 		printk(KERN_WARNING "Unknown field ref type\n");
 		ret = -EINVAL;
 		goto end;
 	}
-	case FILTER_OP_LOAD_FIELD_REF_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_SEQUENCE:
-	case FILTER_OP_LOAD_FIELD_REF_USER_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_USER_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_REF_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_REF_USER_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_USER_SEQUENCE:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct field_ref *ref = (struct field_ref *) insn->data;
@@ -885,7 +885,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ref->offset);
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_REF_S64:
+	case BYTECODE_OP_LOAD_FIELD_REF_S64:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct field_ref *ref = (struct field_ref *) insn->data;
@@ -896,18 +896,18 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 	}
 
 	/* load from immediate operand */
-	case FILTER_OP_LOAD_STRING:
-	case FILTER_OP_LOAD_STAR_GLOB_STRING:
+	case BYTECODE_OP_LOAD_STRING:
+	case BYTECODE_OP_LOAD_STAR_GLOB_STRING:
 	{
 		break;
 	}
 
-	case FILTER_OP_LOAD_S64:
+	case BYTECODE_OP_LOAD_S64:
 	{
 		break;
 	}
 
-	case FILTER_OP_CAST_TO_S64:
+	case BYTECODE_OP_CAST_TO_S64:
 	{
 		struct cast_op *insn = (struct cast_op *) pc;
 
@@ -931,7 +931,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		case REG_S64:
 			break;
 		}
-		if (insn->op == FILTER_OP_CAST_DOUBLE_TO_S64) {
+		if (insn->op == BYTECODE_OP_CAST_DOUBLE_TO_S64) {
 			if (vstack_ax(stack)->type != REG_DOUBLE) {
 				printk(KERN_WARNING "Cast expects double\n");
 				ret = -EINVAL;
@@ -940,19 +940,19 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		}
 		break;
 	}
-	case FILTER_OP_CAST_NOP:
+	case BYTECODE_OP_CAST_NOP:
 	{
 		break;
 	}
 
 	/* get context ref */
-	case FILTER_OP_GET_CONTEXT_REF:
+	case BYTECODE_OP_GET_CONTEXT_REF:
 	{
 		printk(KERN_WARNING "Unknown get context ref type\n");
 		ret = -EINVAL;
 		goto end;
 	}
-	case FILTER_OP_GET_CONTEXT_REF_STRING:
+	case BYTECODE_OP_GET_CONTEXT_REF_STRING:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct field_ref *ref = (struct field_ref *) insn->data;
@@ -961,7 +961,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 			ref->offset);
 		break;
 	}
-	case FILTER_OP_GET_CONTEXT_REF_S64:
+	case BYTECODE_OP_GET_CONTEXT_REF_S64:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct field_ref *ref = (struct field_ref *) insn->data;
@@ -974,22 +974,22 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 	/*
 	 * Instructions for recursive traversal through composed types.
 	 */
-	case FILTER_OP_GET_CONTEXT_ROOT:
+	case BYTECODE_OP_GET_CONTEXT_ROOT:
 	{
 		dbg_printk("Validate get context root\n");
 		break;
 	}
-	case FILTER_OP_GET_APP_CONTEXT_ROOT:
+	case BYTECODE_OP_GET_APP_CONTEXT_ROOT:
 	{
 		dbg_printk("Validate get app context root\n");
 		break;
 	}
-	case FILTER_OP_GET_PAYLOAD_ROOT:
+	case BYTECODE_OP_GET_PAYLOAD_ROOT:
 	{
 		dbg_printk("Validate get payload root\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD:
+	case BYTECODE_OP_LOAD_FIELD:
 	{
 		/*
 		 * We tolerate that field type is unknown at validation,
@@ -999,63 +999,63 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		dbg_printk("Validate load field\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_S8:
+	case BYTECODE_OP_LOAD_FIELD_S8:
 	{
 		dbg_printk("Validate load field s8\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_S16:
+	case BYTECODE_OP_LOAD_FIELD_S16:
 	{
 		dbg_printk("Validate load field s16\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_S32:
+	case BYTECODE_OP_LOAD_FIELD_S32:
 	{
 		dbg_printk("Validate load field s32\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_S64:
+	case BYTECODE_OP_LOAD_FIELD_S64:
 	{
 		dbg_printk("Validate load field s64\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_U8:
+	case BYTECODE_OP_LOAD_FIELD_U8:
 	{
 		dbg_printk("Validate load field u8\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_U16:
+	case BYTECODE_OP_LOAD_FIELD_U16:
 	{
 		dbg_printk("Validate load field u16\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_U32:
+	case BYTECODE_OP_LOAD_FIELD_U32:
 	{
 		dbg_printk("Validate load field u32\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_U64:
+	case BYTECODE_OP_LOAD_FIELD_U64:
 	{
 		dbg_printk("Validate load field u64\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_STRING:
+	case BYTECODE_OP_LOAD_FIELD_STRING:
 	{
 		dbg_printk("Validate load field string\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_SEQUENCE:
 	{
 		dbg_printk("Validate load field sequence\n");
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_DOUBLE:
+	case BYTECODE_OP_LOAD_FIELD_DOUBLE:
 	{
 		dbg_printk("Validate load field double\n");
 		break;
 	}
 
-	case FILTER_OP_GET_SYMBOL:
+	case BYTECODE_OP_GET_SYMBOL:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct get_symbol *sym = (struct get_symbol *) insn->data;
@@ -1064,7 +1064,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_SYMBOL_FIELD:
+	case BYTECODE_OP_GET_SYMBOL_FIELD:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct get_symbol *sym = (struct get_symbol *) insn->data;
@@ -1073,7 +1073,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_INDEX_U16:
+	case BYTECODE_OP_GET_INDEX_U16:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct get_index_u16 *get_index = (struct get_index_u16 *) insn->data;
@@ -1082,7 +1082,7 @@ int validate_instruction_context(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_INDEX_U64:
+	case BYTECODE_OP_GET_INDEX_U64:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 		struct get_index_u64 *get_index = (struct get_index_u64 *) insn->data;
@@ -1129,7 +1129,7 @@ int validate_instruction_all_contexts(struct bytecode_runtime *bytecode,
 		}
 	}
 	if (found) {
-		dbg_printk("Filter: validate merge point at offset %lu\n",
+		dbg_printk("Bytecode: validate merge point at offset %lu\n",
 				target_pc);
 		if (merge_points_compare(stack, &mp_node->stack)) {
 			printk(KERN_WARNING "Merge points differ for offset %lu\n",
@@ -1137,7 +1137,7 @@ int validate_instruction_all_contexts(struct bytecode_runtime *bytecode,
 			return -EINVAL;
 		}
 		/* Once validated, we can remove the merge point */
-		dbg_printk("Filter: remove merge point at offset %lu\n",
+		dbg_printk("Bytecode: remove merge point at offset %lu\n",
 				target_pc);
 		hlist_del(&mp_node->node);
 	}
@@ -1160,17 +1160,17 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	int ret = 1;
 	char *next_pc = *_next_pc;
 
-	switch (*(filter_opcode_t *) pc) {
-	case FILTER_OP_UNKNOWN:
+	switch (*(bytecode_opcode_t *) pc) {
+	case BYTECODE_OP_UNKNOWN:
 	default:
 	{
 		printk(KERN_WARNING "unknown bytecode op %u\n",
-			(unsigned int) *(filter_opcode_t *) pc);
+			(unsigned int) *(bytecode_opcode_t *) pc);
 		ret = -EINVAL;
 		goto end;
 	}
 
-	case FILTER_OP_RETURN:
+	case BYTECODE_OP_RETURN:
 	{
 		if (!vstack_ax(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -1196,7 +1196,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		goto end;
 	}
 
-	case FILTER_OP_RETURN_S64:
+	case BYTECODE_OP_RETURN_S64:
 	{
 		if (!vstack_ax(stack)) {
 			printk(KERN_WARNING "Empty stack\n");
@@ -1220,64 +1220,64 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	}
 
 	/* binary */
-	case FILTER_OP_MUL:
-	case FILTER_OP_DIV:
-	case FILTER_OP_MOD:
-	case FILTER_OP_PLUS:
-	case FILTER_OP_MINUS:
+	case BYTECODE_OP_MUL:
+	case BYTECODE_OP_DIV:
+	case BYTECODE_OP_MOD:
+	case BYTECODE_OP_PLUS:
+	case BYTECODE_OP_MINUS:
 	/* Floating point */
-	case FILTER_OP_EQ_DOUBLE:
-	case FILTER_OP_NE_DOUBLE:
-	case FILTER_OP_GT_DOUBLE:
-	case FILTER_OP_LT_DOUBLE:
-	case FILTER_OP_GE_DOUBLE:
-	case FILTER_OP_LE_DOUBLE:
-	case FILTER_OP_EQ_DOUBLE_S64:
-	case FILTER_OP_NE_DOUBLE_S64:
-	case FILTER_OP_GT_DOUBLE_S64:
-	case FILTER_OP_LT_DOUBLE_S64:
-	case FILTER_OP_GE_DOUBLE_S64:
-	case FILTER_OP_LE_DOUBLE_S64:
-	case FILTER_OP_EQ_S64_DOUBLE:
-	case FILTER_OP_NE_S64_DOUBLE:
-	case FILTER_OP_GT_S64_DOUBLE:
-	case FILTER_OP_LT_S64_DOUBLE:
-	case FILTER_OP_GE_S64_DOUBLE:
-	case FILTER_OP_LE_S64_DOUBLE:
-	case FILTER_OP_UNARY_PLUS_DOUBLE:
-	case FILTER_OP_UNARY_MINUS_DOUBLE:
-	case FILTER_OP_UNARY_NOT_DOUBLE:
-	case FILTER_OP_LOAD_FIELD_REF_DOUBLE:
-	case FILTER_OP_GET_CONTEXT_REF_DOUBLE:
-	case FILTER_OP_LOAD_DOUBLE:
-	case FILTER_OP_CAST_DOUBLE_TO_S64:
+	case BYTECODE_OP_EQ_DOUBLE:
+	case BYTECODE_OP_NE_DOUBLE:
+	case BYTECODE_OP_GT_DOUBLE:
+	case BYTECODE_OP_LT_DOUBLE:
+	case BYTECODE_OP_GE_DOUBLE:
+	case BYTECODE_OP_LE_DOUBLE:
+	case BYTECODE_OP_EQ_DOUBLE_S64:
+	case BYTECODE_OP_NE_DOUBLE_S64:
+	case BYTECODE_OP_GT_DOUBLE_S64:
+	case BYTECODE_OP_LT_DOUBLE_S64:
+	case BYTECODE_OP_GE_DOUBLE_S64:
+	case BYTECODE_OP_LE_DOUBLE_S64:
+	case BYTECODE_OP_EQ_S64_DOUBLE:
+	case BYTECODE_OP_NE_S64_DOUBLE:
+	case BYTECODE_OP_GT_S64_DOUBLE:
+	case BYTECODE_OP_LT_S64_DOUBLE:
+	case BYTECODE_OP_GE_S64_DOUBLE:
+	case BYTECODE_OP_LE_S64_DOUBLE:
+	case BYTECODE_OP_UNARY_PLUS_DOUBLE:
+	case BYTECODE_OP_UNARY_MINUS_DOUBLE:
+	case BYTECODE_OP_UNARY_NOT_DOUBLE:
+	case BYTECODE_OP_LOAD_FIELD_REF_DOUBLE:
+	case BYTECODE_OP_GET_CONTEXT_REF_DOUBLE:
+	case BYTECODE_OP_LOAD_DOUBLE:
+	case BYTECODE_OP_CAST_DOUBLE_TO_S64:
 	{
 		printk(KERN_WARNING "unsupported bytecode op %u\n",
-			(unsigned int) *(filter_opcode_t *) pc);
+			(unsigned int) *(bytecode_opcode_t *) pc);
 		ret = -EINVAL;
 		goto end;
 	}
 
-	case FILTER_OP_EQ:
-	case FILTER_OP_NE:
-	case FILTER_OP_GT:
-	case FILTER_OP_LT:
-	case FILTER_OP_GE:
-	case FILTER_OP_LE:
-	case FILTER_OP_EQ_STRING:
-	case FILTER_OP_NE_STRING:
-	case FILTER_OP_GT_STRING:
-	case FILTER_OP_LT_STRING:
-	case FILTER_OP_GE_STRING:
-	case FILTER_OP_LE_STRING:
-	case FILTER_OP_EQ_STAR_GLOB_STRING:
-	case FILTER_OP_NE_STAR_GLOB_STRING:
-	case FILTER_OP_EQ_S64:
-	case FILTER_OP_NE_S64:
-	case FILTER_OP_GT_S64:
-	case FILTER_OP_LT_S64:
-	case FILTER_OP_GE_S64:
-	case FILTER_OP_LE_S64:
+	case BYTECODE_OP_EQ:
+	case BYTECODE_OP_NE:
+	case BYTECODE_OP_GT:
+	case BYTECODE_OP_LT:
+	case BYTECODE_OP_GE:
+	case BYTECODE_OP_LE:
+	case BYTECODE_OP_EQ_STRING:
+	case BYTECODE_OP_NE_STRING:
+	case BYTECODE_OP_GT_STRING:
+	case BYTECODE_OP_LT_STRING:
+	case BYTECODE_OP_GE_STRING:
+	case BYTECODE_OP_LE_STRING:
+	case BYTECODE_OP_EQ_STAR_GLOB_STRING:
+	case BYTECODE_OP_NE_STAR_GLOB_STRING:
+	case BYTECODE_OP_EQ_S64:
+	case BYTECODE_OP_NE_S64:
+	case BYTECODE_OP_GT_S64:
+	case BYTECODE_OP_LT_S64:
+	case BYTECODE_OP_GE_S64:
+	case BYTECODE_OP_LE_S64:
 	{
 		/* Pop 2, push 1 */
 		if (vstack_pop(stack)) {
@@ -1308,11 +1308,11 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		next_pc += sizeof(struct binary_op);
 		break;
 	}
-	case FILTER_OP_BIT_RSHIFT:
-	case FILTER_OP_BIT_LSHIFT:
-	case FILTER_OP_BIT_AND:
-	case FILTER_OP_BIT_OR:
-	case FILTER_OP_BIT_XOR:
+	case BYTECODE_OP_BIT_RSHIFT:
+	case BYTECODE_OP_BIT_LSHIFT:
+	case BYTECODE_OP_BIT_AND:
+	case BYTECODE_OP_BIT_OR:
+	case BYTECODE_OP_BIT_XOR:
 	{
 		/* Pop 2, push 1 */
 		if (vstack_pop(stack)) {
@@ -1345,8 +1345,8 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	}
 
 	/* unary */
-	case FILTER_OP_UNARY_PLUS:
-	case FILTER_OP_UNARY_MINUS:
+	case BYTECODE_OP_UNARY_PLUS:
+	case BYTECODE_OP_UNARY_MINUS:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1371,9 +1371,9 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_UNARY_PLUS_S64:
-	case FILTER_OP_UNARY_MINUS_S64:
-	case FILTER_OP_UNARY_NOT_S64:
+	case BYTECODE_OP_UNARY_PLUS_S64:
+	case BYTECODE_OP_UNARY_MINUS_S64:
+	case BYTECODE_OP_UNARY_NOT_S64:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1396,7 +1396,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_UNARY_NOT:
+	case BYTECODE_OP_UNARY_NOT:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1420,7 +1420,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_UNARY_BIT_NOT:
+	case BYTECODE_OP_UNARY_BIT_NOT:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1447,8 +1447,8 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	}
 
 	/* logical */
-	case FILTER_OP_AND:
-	case FILTER_OP_OR:
+	case BYTECODE_OP_AND:
+	case BYTECODE_OP_OR:
 	{
 		struct logical_op *insn = (struct logical_op *) pc;
 		int merge_ret;
@@ -1489,24 +1489,24 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	}
 
 	/* load field ref */
-	case FILTER_OP_LOAD_FIELD_REF:
+	case BYTECODE_OP_LOAD_FIELD_REF:
 	{
 		printk(KERN_WARNING "Unknown field ref type\n");
 		ret = -EINVAL;
 		goto end;
 	}
 	/* get context ref */
-	case FILTER_OP_GET_CONTEXT_REF:
+	case BYTECODE_OP_GET_CONTEXT_REF:
 	{
 		printk(KERN_WARNING "Unknown get context ref type\n");
 		ret = -EINVAL;
 		goto end;
 	}
-	case FILTER_OP_LOAD_FIELD_REF_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_SEQUENCE:
-	case FILTER_OP_GET_CONTEXT_REF_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_USER_STRING:
-	case FILTER_OP_LOAD_FIELD_REF_USER_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_REF_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_SEQUENCE:
+	case BYTECODE_OP_GET_CONTEXT_REF_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_USER_STRING:
+	case BYTECODE_OP_LOAD_FIELD_REF_USER_SEQUENCE:
 	{
 		if (vstack_push(stack)) {
 			ret = -EINVAL;
@@ -1516,8 +1516,8 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		next_pc += sizeof(struct load_op) + sizeof(struct field_ref);
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_REF_S64:
-	case FILTER_OP_GET_CONTEXT_REF_S64:
+	case BYTECODE_OP_LOAD_FIELD_REF_S64:
+	case BYTECODE_OP_GET_CONTEXT_REF_S64:
 	{
 		if (vstack_push(stack)) {
 			ret = -EINVAL;
@@ -1529,7 +1529,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	}
 
 	/* load from immediate operand */
-	case FILTER_OP_LOAD_STRING:
+	case BYTECODE_OP_LOAD_STRING:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 
@@ -1542,7 +1542,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_LOAD_STAR_GLOB_STRING:
+	case BYTECODE_OP_LOAD_STAR_GLOB_STRING:
 	{
 		struct load_op *insn = (struct load_op *) pc;
 
@@ -1555,7 +1555,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_LOAD_S64:
+	case BYTECODE_OP_LOAD_S64:
 	{
 		if (vstack_push(stack)) {
 			ret = -EINVAL;
@@ -1567,7 +1567,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_CAST_TO_S64:
+	case BYTECODE_OP_CAST_TO_S64:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1591,7 +1591,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		next_pc += sizeof(struct cast_op);
 		break;
 	}
-	case FILTER_OP_CAST_NOP:
+	case BYTECODE_OP_CAST_NOP:
 	{
 		next_pc += sizeof(struct cast_op);
 		break;
@@ -1600,9 +1600,9 @@ int exec_insn(struct bytecode_runtime *bytecode,
 	/*
 	 * Instructions for recursive traversal through composed types.
 	 */
-	case FILTER_OP_GET_CONTEXT_ROOT:
-	case FILTER_OP_GET_APP_CONTEXT_ROOT:
-	case FILTER_OP_GET_PAYLOAD_ROOT:
+	case BYTECODE_OP_GET_CONTEXT_ROOT:
+	case BYTECODE_OP_GET_APP_CONTEXT_ROOT:
+	case BYTECODE_OP_GET_PAYLOAD_ROOT:
 	{
 		if (vstack_push(stack)) {
 			ret = -EINVAL;
@@ -1613,7 +1613,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_LOAD_FIELD:
+	case BYTECODE_OP_LOAD_FIELD:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1631,10 +1631,10 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_LOAD_FIELD_S8:
-	case FILTER_OP_LOAD_FIELD_S16:
-	case FILTER_OP_LOAD_FIELD_S32:
-	case FILTER_OP_LOAD_FIELD_S64:
+	case BYTECODE_OP_LOAD_FIELD_S8:
+	case BYTECODE_OP_LOAD_FIELD_S16:
+	case BYTECODE_OP_LOAD_FIELD_S32:
+	case BYTECODE_OP_LOAD_FIELD_S64:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1651,10 +1651,10 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		next_pc += sizeof(struct load_op);
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_U8:
-	case FILTER_OP_LOAD_FIELD_U16:
-	case FILTER_OP_LOAD_FIELD_U32:
-	case FILTER_OP_LOAD_FIELD_U64:
+	case BYTECODE_OP_LOAD_FIELD_U8:
+	case BYTECODE_OP_LOAD_FIELD_U16:
+	case BYTECODE_OP_LOAD_FIELD_U32:
+	case BYTECODE_OP_LOAD_FIELD_U64:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1671,8 +1671,8 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		next_pc += sizeof(struct load_op);
 		break;
 	}
-	case FILTER_OP_LOAD_FIELD_STRING:
-	case FILTER_OP_LOAD_FIELD_SEQUENCE:
+	case BYTECODE_OP_LOAD_FIELD_STRING:
+	case BYTECODE_OP_LOAD_FIELD_SEQUENCE:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1690,7 +1690,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_LOAD_FIELD_DOUBLE:
+	case BYTECODE_OP_LOAD_FIELD_DOUBLE:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1708,8 +1708,8 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_SYMBOL:
-	case FILTER_OP_GET_SYMBOL_FIELD:
+	case BYTECODE_OP_GET_SYMBOL:
+	case BYTECODE_OP_GET_SYMBOL_FIELD:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1726,7 +1726,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_INDEX_U16:
+	case BYTECODE_OP_GET_INDEX_U16:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1743,7 +1743,7 @@ int exec_insn(struct bytecode_runtime *bytecode,
 		break;
 	}
 
-	case FILTER_OP_GET_INDEX_U64:
+	case BYTECODE_OP_GET_INDEX_U64:
 	{
 		/* Pop 1, push 1 */
 		if (!vstack_ax(stack)) {
@@ -1769,7 +1769,7 @@ end:
 /*
  * Never called concurrently (hash seed is shared).
  */
-int lttng_filter_validate_bytecode(struct bytecode_runtime *bytecode)
+int lttng_bytecode_validate(struct bytecode_runtime *bytecode)
 {
 	struct mp_table *mp_table;
 	char *pc, *next_pc, *start_pc;
@@ -1789,12 +1789,12 @@ int lttng_filter_validate_bytecode(struct bytecode_runtime *bytecode)
 		ret = bytecode_validate_overflow(bytecode, start_pc, pc);
 		if (ret != 0) {
 			if (ret == -ERANGE)
-				printk(KERN_WARNING "filter bytecode overflow\n");
+				printk(KERN_WARNING "bytecode overflow\n");
 			goto end;
 		}
 		dbg_printk("Validating op %s (%u)\n",
-			lttng_filter_print_op((unsigned int) *(filter_opcode_t *) pc),
-			(unsigned int) *(filter_opcode_t *) pc);
+			lttng_bytecode_print_op((unsigned int) *(bytecode_opcode_t *) pc),
+			(unsigned int) *(bytecode_opcode_t *) pc);
 
 		/*
 		 * For each instruction, validate the current context
