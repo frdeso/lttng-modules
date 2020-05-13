@@ -844,7 +844,6 @@ static inline int lttng_syscall_filter_disable_trigger(struct lttng_trigger_grou
 
 #endif
 
-void lttng_filter_sync_state(struct lttng_bytecode_runtime *runtime);
 int lttng_event_enabler_attach_filter_bytecode(struct lttng_event_enabler *event_enabler,
 		struct lttng_kernel_filter_bytecode __user *bytecode);
 int lttng_trigger_enabler_attach_filter_bytecode(struct lttng_trigger_enabler *trigger_enabler,

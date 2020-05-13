@@ -36,6 +36,7 @@
 #include <wrapper/types.h>
 #include <lttng/kernel-version.h>
 #include <lttng/events.h>
+#include <lttng/lttng-bytecode.h>
 #include <lttng/tracer.h>
 #include <lttng/trigger-notification.h>
 #include <lttng/abi-old.h>
@@ -2333,7 +2334,7 @@ void lttng_session_sync_event_enablers(struct lttng_session *session)
 		/* Enable filters */
 		list_for_each_entry(runtime,
 				&event->filter_bytecode_runtime_head, node)
-			lttng_filter_sync_state(runtime);
+			lttng_bytecode_filter_sync_state(runtime);
 	}
 }
 
@@ -2416,7 +2417,7 @@ void lttng_trigger_group_sync_enablers(struct lttng_trigger_group *trigger_group
 		/* Enable filters */
 		list_for_each_entry(runtime,
 				&trigger->filter_bytecode_runtime_head, node)
-			lttng_filter_sync_state(runtime);
+			lttng_bytecode_filter_sync_state(runtime);
 	}
 }
 
