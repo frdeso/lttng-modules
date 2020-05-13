@@ -853,8 +853,8 @@ int lttng_trigger_enabler_attach_filter_bytecode(struct lttng_trigger_enabler *t
 
 void lttng_enabler_link_bytecode(const struct lttng_event_desc *event_desc,
 		struct lttng_ctx *ctx,
-		struct list_head *bytecode_runtime_head,
-		struct lttng_enabler *enabler);
+		struct list_head *instance_bytecode_runtime_head,
+		struct list_head *enabler_bytecode_runtime_head);
 
 int lttng_probes_init(void);
 

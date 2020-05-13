@@ -1907,7 +1907,7 @@ int lttng_event_enabler_ref_events(struct lttng_event_enabler *event_enabler)
 		lttng_enabler_link_bytecode(event->desc,
 			lttng_static_ctx,
 			&event->filter_bytecode_runtime_head,
-			lttng_event_enabler_as_enabler(event_enabler));
+			&lttng_event_enabler_as_enabler(event_enabler)->filter_bytecode_head);
 
 		/* TODO: merge event context. */
 	}
@@ -1976,7 +1976,7 @@ int lttng_trigger_enabler_ref_triggers(struct lttng_trigger_enabler *trigger_ena
 		 */
 		lttng_enabler_link_bytecode(trigger->desc,
 			lttng_static_ctx, &trigger->filter_bytecode_runtime_head,
-			lttng_trigger_enabler_as_enabler(trigger_enabler));
+			&lttng_trigger_enabler_as_enabler(trigger_enabler)->filter_bytecode_head);
 	}
 	return 0;
 }
