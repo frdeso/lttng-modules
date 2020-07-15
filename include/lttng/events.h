@@ -497,11 +497,32 @@ struct lttng_channel_ops {
 			uint64_t *id);
 };
 
+struct lib_counter_dimension;
+
+struct lttng_counter_ops {
+	struct lib_counter *(*counter_create)(size_t nr_dimensions,
+			struct lib_counter_dimension *dimensions);
+	void (*counter_destroy)(struct lib_counter *counter);
+	void (*counter_add)(struct lib_counter *counter, long *dimension_indexes,
+			long v);
+	int (*counter_read)(struct lib_counter *counter, long *dimension_indexes, int cpu,
+			int64_t *value, bool *overflow, bool *underflow);
+	int (*counter_aggregate)(struct lib_counter *counter, long *dimension_indexes, int64_t *value,
+				 bool *overflow, bool *underflow);
+};
+
 struct lttng_transport {
 	char *name;
 	struct module *owner;
 	struct list_head node;
 	struct lttng_channel_ops ops;
+};
+
+struct lttng_counter_transport {
+	char *name;
+	struct module *owner;
+	struct list_head node;
+	struct lttng_counter_ops ops;
 };
 
 struct lttng_syscall_filter;
@@ -754,6 +775,9 @@ int lttng_trigger_disable(struct lttng_trigger *trigger);
 
 void lttng_transport_register(struct lttng_transport *transport);
 void lttng_transport_unregister(struct lttng_transport *transport);
+
+void lttng_counter_transport_register(struct lttng_counter_transport *transport);
+void lttng_counter_transport_unregister(struct lttng_counter_transport *transport);
 
 void synchronize_trace(void);
 int lttng_abi_init(void);
