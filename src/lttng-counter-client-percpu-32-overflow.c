@@ -21,9 +21,11 @@ static const struct lib_counter_config client_config = {
 };
 
 static struct lib_counter *counter_create(size_t nr_dimensions,
-					  struct lib_counter_dimension *dimensions)
+					  struct lib_counter_dimension *dimensions,
+					  int64_t global_sum_step)
 {
-	return lttng_counter_create(&client_config, nr_dimensions, dimensions);
+	return lttng_counter_create(&client_config, nr_dimensions, dimensions,
+				    global_sum_step);
 }
 
 static void counter_destroy(struct lib_counter *counter)

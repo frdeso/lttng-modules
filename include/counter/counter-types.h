@@ -61,7 +61,12 @@ struct lib_counter {
 			int64_t max, min;
 		} limits_64_bit;
 	} saturation;
-	long split_counter_global_sum_step;		/* 0 if unused */
+	union {
+		int8_t s8;
+		int16_t s16;
+		int32_t s32;
+		int64_t s64;
+	} global_sum_step;		/* 0 if unused */
 	struct lib_counter_config config;
 
 	struct lib_counter_layout global_counters;

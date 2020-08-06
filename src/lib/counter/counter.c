@@ -88,9 +88,43 @@ static void lttng_counter_layout_fini(struct lib_counter *counter, int cpu)
 	lttng_kvfree(layout->underflow_bitmap);
 }
 
+static
+int lttng_counter_set_global_sum_step(struct lib_counter *counter,
+				      int64_t global_sum_step)
+{
+	if (global_sum_step < 0)
+		return -EINVAL;
+
+	switch (counter->config.counter_size) {
+	case COUNTER_SIZE_8_BIT:
+		if (global_sum_step > S8_MAX)
+			return -EINVAL;
+		counter->global_sum_step.s8 = (int8_t) global_sum_step;
+		break;
+	case COUNTER_SIZE_16_BIT:
+		if (global_sum_step > S16_MAX)
+			return -EINVAL;
+		counter->global_sum_step.s16 = (int16_t) global_sum_step;
+		break;
+	case COUNTER_SIZE_32_BIT:
+		if (global_sum_step > S32_MAX)
+			return -EINVAL;
+		counter->global_sum_step.s32 = (int32_t) global_sum_step;
+		break;
+	case COUNTER_SIZE_64_BIT:
+		counter->global_sum_step.s64 = global_sum_step;
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	return 0;
+}
+
 struct lib_counter *lttng_counter_create(const struct lib_counter_config *config,
 					 size_t nr_dimensions,
-					 struct lib_counter_dimension *dimensions)
+					 struct lib_counter_dimension *dimensions,
+					 int64_t global_sum_step)
 {
 	struct lib_counter *counter;
 	int cpu, ret;
@@ -102,6 +136,8 @@ struct lib_counter *lttng_counter_create(const struct lib_counter_config *config
 	counter = kzalloc(sizeof(struct lib_counter), GFP_KERNEL);
 	if (!counter)
 		return NULL;
+	if (lttng_counter_set_global_sum_step(counter, global_sum_step))
+		goto error_sum_step;
 	counter->nr_dimensions = nr_dimensions;
 	counter->dimensions = kzalloc(nr_dimensions * sizeof(*counter->dimensions), GFP_KERNEL);
 	if (!counter->dimensions)
@@ -133,6 +169,7 @@ layout_init_error:
 error_alloc_percpu:
 	kfree(counter->dimensions);
 error_dimensions:
+error_sum_step:
 	kfree(counter);
 	return NULL;
 }
@@ -150,36 +187,6 @@ void lttng_counter_destroy(struct lib_counter *counter)
 	kfree(counter);
 }
 EXPORT_SYMBOL_GPL(lttng_counter_destroy);
-
-int lttng_counter_set_global_sum_step(struct lib_counter *counter,
-				      long global_sum_step)
-{
-	if (global_sum_step < 0)
-		return -EINVAL;
-
-	switch (counter->config.counter_size) {
-	case COUNTER_SIZE_8_BIT:
-		if (global_sum_step > S8_MAX)
-			return -EINVAL;
-		break;
-	case COUNTER_SIZE_16_BIT:
-		if (global_sum_step > S16_MAX)
-			return -EINVAL;
-		break;
-	case COUNTER_SIZE_32_BIT:
-		if (global_sum_step > S32_MAX)
-			return -EINVAL;
-		break;
-	case COUNTER_SIZE_64_BIT:
-		break;
-	default:
-		return -EINVAL;
-	}
-
-	WRITE_ONCE(counter->split_counter_global_sum_step, global_sum_step);
-	return 0;
-}
-EXPORT_SYMBOL_GPL(lttng_counter_set_global_sum_step);
 
 int lttng_counter_read(const struct lib_counter_config *config,
 		       struct lib_counter *counter,

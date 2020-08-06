@@ -17,11 +17,9 @@
 
 struct lib_counter *lttng_counter_create(const struct lib_counter_config *config,
 					 size_t nr_dimensions,
-					 struct lib_counter_dimension *dimensions);
+					 struct lib_counter_dimension *dimensions,
+					 int64_t global_sum_step);
 void lttng_counter_destroy(struct lib_counter *counter);
-
-int lttng_counter_set_global_sum_step(struct lib_counter *counter,
-				      long global_sum_step);
 
 int lttng_counter_read(const struct lib_counter_config *config,
 		      struct lib_counter *counter,

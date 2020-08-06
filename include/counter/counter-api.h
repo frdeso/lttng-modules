@@ -54,7 +54,6 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 				       struct lib_counter *counter,
 				       long *dimension_indexes, int64_t v)
 {
-	long global_sum_step = READ_ONCE(counter->split_counter_global_sum_step);
 	size_t index = lttng_counter_get_index(config, counter, dimension_indexes);
 	bool overflow = false, underflow = false;
 	struct lib_counter_layout *layout;
@@ -75,6 +74,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	{
 		int8_t *int_p = p;
 		int8_t old, n, res;
+		int8_t global_sum_step = counter->global_sum_step.s8;
 
 		res = *int_p;
 		switch (sync) {
@@ -113,6 +113,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	{
 		int16_t *int_p = p;
 		int16_t old, n, res;
+		int16_t global_sum_step = counter->global_sum_step.s16;
 
 		res = *int_p;
 		switch (sync) {
@@ -155,6 +156,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	{
 		int32_t *int_p = p;
 		int32_t old, n, res;
+		int32_t global_sum_step = counter->global_sum_step.s32;
 
 		res = *int_p;
 		switch (sync) {
@@ -194,6 +196,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	{
 		int64_t *int_p = p;
 		int64_t old, n, res;
+		int64_t global_sum_step = counter->global_sum_step.s64;
 
 		res = *int_p;
 		switch (sync) {
