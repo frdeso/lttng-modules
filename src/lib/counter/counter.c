@@ -123,11 +123,12 @@ int lttng_counter_set_global_sum_step(struct lib_counter *counter,
 
 struct lib_counter *lttng_counter_create(const struct lib_counter_config *config,
 					 size_t nr_dimensions,
-					 struct lib_counter_dimension *dimensions,
+					 const size_t *max_nr_elem,
 					 int64_t global_sum_step)
 {
 	struct lib_counter *counter;
 	int cpu, ret;
+	size_t i;
 
 	if (BITS_PER_LONG != 64 && config->counter_size == COUNTER_SIZE_64_BIT) {
 		WARN_ON_ONCE(1);
@@ -142,12 +143,15 @@ struct lib_counter *lttng_counter_create(const struct lib_counter_config *config
 	counter->dimensions = kzalloc(nr_dimensions * sizeof(*counter->dimensions), GFP_KERNEL);
 	if (!counter->dimensions)
 		goto error_dimensions;
+	for (i = 0; i < nr_dimensions; i++)
+		counter->dimensions[i].max_nr_elem = max_nr_elem[i];
 	counter->config = *config;
 	if (config->alloc == COUNTER_ALLOC_PER_CPU) {
 		counter->percpu_counters = alloc_percpu(struct lib_counter_layout);
 		if (!counter->percpu_counters)
 			goto error_alloc_percpu;
 	}
+	
 	lttng_counter_init_stride(config, counter);
 	//TODO saturation values.
 	ret = lttng_counter_layout_init(counter, -1);	/* global */

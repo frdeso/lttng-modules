@@ -15,9 +15,10 @@
 #include <counter/config.h>
 #include <counter/counter-types.h>
 
+/* max_nr_elem is for each dimension. */
 struct lib_counter *lttng_counter_create(const struct lib_counter_config *config,
 					 size_t nr_dimensions,
-					 struct lib_counter_dimension *dimensions,
+					 const size_t *max_nr_elem,
 					 int64_t global_sum_step);
 void lttng_counter_destroy(struct lib_counter *counter);
 

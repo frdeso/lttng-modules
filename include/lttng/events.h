@@ -501,7 +501,7 @@ struct lib_counter_dimension;
 
 struct lttng_counter_ops {
 	struct lib_counter *(*counter_create)(size_t nr_dimensions,
-			struct lib_counter_dimension *dimensions,
+			const size_t *max_nr_elem,	/* for each dimension */
 			int64_t global_sum_step);
 	void (*counter_destroy)(struct lib_counter *counter);
 	void (*counter_add)(struct lib_counter *counter, long *dimension_indexes,

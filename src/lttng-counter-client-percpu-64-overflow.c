@@ -21,10 +21,10 @@ static const struct lib_counter_config client_config = {
 };
 
 static struct lib_counter *counter_create(size_t nr_dimensions,
-					  struct lib_counter_dimension *dimensions,
+					  const size_t *max_nr_elem,
 					  int64_t global_sum_step)
 {
-	return lttng_counter_create(&client_config, nr_dimensions, dimensions,
+	return lttng_counter_create(&client_config, nr_dimensions, max_nr_elem,
 				    global_sum_step);
 }
 
