@@ -352,6 +352,7 @@ void notification_send(struct lttng_trigger_notification *notif,
 	struct lttng_kernel_trigger_notification kernel_notif;
 	size_t capture_buffer_content_len, reserve_size;
 	int ret;
+	int64_t dimension_index[1];
 
 	reserve_size = sizeof(kernel_notif);
 	kernel_notif.id = trigger->id;
@@ -376,6 +377,12 @@ void notification_send(struct lttng_trigger_notification *notif,
 		WARN_ON_ONCE(1);
 		return;
 	}
+
+	dimension_index[0] = trigger->error_counter_index;
+
+	trigger_group->error_counter->ops->counter_add(trigger_group->error_counter->counter,
+			dimension_index, 1);
+
 	lib_ring_buffer_align_ctx(&ctx, lttng_alignof(kernel_notif));
 
 	/* Write the notif structure. */

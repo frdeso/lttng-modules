@@ -114,6 +114,7 @@ struct lttng_kernel_event {
 #define LTTNG_KERNEL_TRIGGER_PADDING2	LTTNG_KERNEL_SYM_NAME_LEN + 32
 struct lttng_kernel_trigger {
 	uint64_t id;
+	uint64_t error_counter_index;
 	char name[LTTNG_KERNEL_SYM_NAME_LEN];	/* event name */
 	enum lttng_kernel_instrumentation instrumentation;
 	char padding[LTTNG_KERNEL_TRIGGER_PADDING1];
@@ -126,6 +127,28 @@ struct lttng_kernel_trigger {
 		struct lttng_kernel_uprobe uprobe;
 		char padding[LTTNG_KERNEL_TRIGGER_PADDING2];
 	} u;
+} __attribute__((packed));
+
+enum lttng_kernel_counter_type {
+    LTTNG_KERNEL_COUNTER_TYPE_OVERFLOW = 1,
+};
+
+enum lttng_kernel_counter_bitness {
+    LTTNG_KERNEL_COUNTER_BITNESS_32BITS = 1,
+    LTTNG_KERNEL_COUNTER_BITNESS_64BITS = 2,
+};
+
+#define LTTNG_KERNEL_COUNTER_DIMENSION_MAX 8
+struct lttng_kernel_counter_conf {
+	enum lttng_kernel_counter_type type;
+	enum lttng_kernel_counter_bitness bitness;
+	size_t number_dimensions;
+	int64_t dimension_sizes[LTTNG_KERNEL_COUNTER_DIMENSION_MAX];
+} __attribute__((packed));
+
+struct lttng_kernel_counter_value {
+	int64_t dimension_indexes[LTTNG_KERNEL_COUNTER_DIMENSION_MAX];
+	int64_t value;
 } __attribute__((packed));
 
 #define LTTNG_KERNEL_TRIGGER_NOTIFICATION_PADDING 32
@@ -275,9 +298,17 @@ struct lttng_kernel_tracker_args {
 /* Trigger group file descriptor ioctl */
 #define LTTNG_KERNEL_TRIGGER_GROUP_NOTIFICATION_FD \
 	_IO(0xF6, 0x30)
+
 #define LTTNG_KERNEL_TRIGGER_CREATE		\
 	_IOW(0xF6, 0x31, struct lttng_kernel_trigger)
+
 #define LTTNG_KERNEL_CAPTURE _IO(0xF6, 0x32)
+
+#define LTTNG_KERNEL_COUNTER \
+	_IOW(0xF6, 0x33, struct lttng_kernel_counter_conf)
+
+#define LTTNG_KERNEL_COUNTER_VALUE \
+	_IOWR(0xF6, 0x34, struct lttng_kernel_counter_value)
 
 /* Session FD ioctl */
 /* lttng/abi-old.h reserve 0x50, 0x51, 0x52, and 0x53. */

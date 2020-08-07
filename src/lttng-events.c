@@ -198,6 +198,61 @@ err:
 	return NULL;
 }
 
+static
+struct lttng_counter_transport *lttng_counter_transport_find(const char *name)
+{
+	struct lttng_counter_transport *transport;
+
+	list_for_each_entry(transport, &lttng_counter_transport_list, node) {
+		if (!strcmp(transport->name, name))
+			return transport;
+	}
+	return NULL;
+}
+
+struct counter *lttng_kernel_counter_create(
+		const char *counter_transport_name,
+		size_t number_dimensions, const int64_t *dimensions_sizes)
+{
+	struct counter *counter = NULL;
+	struct lttng_counter_transport *counter_transport = NULL;
+
+	counter_transport = lttng_counter_transport_find(counter_transport_name);
+	if (!counter_transport) {
+		printk(KERN_WARNING "LTTng: counter transport %s not found.\n",
+		       counter_transport_name);
+		goto notransport;
+	}
+	if (!try_module_get(counter_transport->owner)) {
+		printk(KERN_WARNING "LTTng: Can't lock counter transport module.\n");
+		goto notransport;
+	}
+
+	counter = kzalloc(sizeof(struct counter), GFP_KERNEL);
+	if (!counter)
+		goto nomem;
+
+	/* Create trigger error counter. */
+	counter->ops = &counter_transport->ops;
+	counter->transport = counter_transport;
+
+	counter->counter = counter->ops->counter_create(
+			number_dimensions, dimensions_sizes, 0);
+	if (!counter->counter) {
+		goto create_error;
+	}
+
+	return counter;
+
+create_error:
+	kfree(counter);
+nomem:
+	if (counter_transport)
+		module_put(counter_transport->owner);
+notransport:
+	return NULL;
+}
+
 struct lttng_trigger_group *lttng_trigger_group_create(void)
 {
 	struct lttng_transport *transport = NULL;
@@ -743,17 +798,6 @@ void _lttng_metadata_channel_hangup(struct lttng_metadata_stream *stream)
 	wake_up_interruptible(&stream->read_wait);
 }
 
-static
-struct lttng_counter_transport *lttng_counter_transport_find(const char *name)
-{
-	struct lttng_counter_transport *transport;
-
-	list_for_each_entry(transport, &lttng_counter_transport_list, node) {
-		if (!strcmp(transport->name, name))
-			return transport;
-	}
-	return NULL;
-}
 
 /*
  * Supports event creation while tracing session is active.
@@ -974,7 +1018,8 @@ full:
 
 struct lttng_trigger *_lttng_trigger_create(
 		const struct lttng_event_desc *event_desc,
-		uint64_t id, struct lttng_trigger_group *trigger_group,
+		uint64_t id, uint64_t error_counter_index,
+		struct lttng_trigger_group *trigger_group,
 		struct lttng_kernel_trigger *trigger_param, void *filter,
 		enum lttng_kernel_instrumentation itype)
 {
@@ -982,6 +1027,7 @@ struct lttng_trigger *_lttng_trigger_create(
 	const char *event_name;
 	struct hlist_head *head;
 	int ret;
+	int64_t dimension_index[1];
 
 	switch (itype) {
 	case LTTNG_KERNEL_TRACEPOINT:
@@ -1021,6 +1067,7 @@ struct lttng_trigger *_lttng_trigger_create(
 	}
 	trigger->group = trigger_group;
 	trigger->id = id;
+	trigger->error_counter_index = error_counter_index;
 	trigger->num_captures = 0;
 	trigger->filter = filter;
 	trigger->instrumentation = itype;
@@ -1113,6 +1160,22 @@ struct lttng_trigger *_lttng_trigger_create(
 
 	list_add(&trigger->list, &trigger_group->triggers_head);
 	hlist_add_head(&trigger->hlist, head);
+
+	/*
+	 * Clear the error counter bucket. The sessiond keeps track of which
+	 * bucket is currently in use. We trust it.
+	 */
+	if (trigger_group->error_counter) {
+		dimension_index[0] = trigger->error_counter_index;
+		ret = trigger_group->error_counter->ops->counter_clear(
+				trigger_group->error_counter->counter,
+				dimension_index);
+		if (ret) {
+				printk(KERN_INFO "Unable to clear error counter bucket %llu\n",
+					trigger->error_counter_index);
+		}
+	}
+
 	return trigger;
 
 register_error:
@@ -1121,6 +1184,29 @@ cache_error:
 exist:
 type_error:
 	return ERR_PTR(ret);
+}
+
+int lttng_kernel_counter_value(struct counter *counter, int64_t *dim_indexes,
+		int64_t *val)
+{
+	int ret;
+	bool overflow, underflow;
+
+	ret = counter->ops->counter_aggregate(counter->counter, dim_indexes,
+			val, &overflow, &underflow);
+	if (ret) {
+		printk(KERN_WARNING "LTTng: Error getting counter value.\n");
+		goto error;
+	}
+
+	if (overflow)
+		printk(KERN_WARNING "LTTng: counter overflow detected.\n");
+
+	if (underflow)
+		printk(KERN_WARNING "LTTng: counter underflow detected.\n");
+
+error:
+	return ret;
 }
 
 struct lttng_event *lttng_event_create(struct lttng_channel *chan,
@@ -1140,15 +1226,16 @@ struct lttng_event *lttng_event_create(struct lttng_channel *chan,
 
 struct lttng_trigger *lttng_trigger_create(
 		const struct lttng_event_desc *event_desc,
-		uint64_t id, struct lttng_trigger_group *trigger_group,
+		uint64_t id, uint64_t error_counter_index,
+		struct lttng_trigger_group *trigger_group,
 		struct lttng_kernel_trigger *trigger_param, void *filter,
 		enum lttng_kernel_instrumentation itype)
 {
 	struct lttng_trigger *trigger;
 
 	mutex_lock(&sessions_mutex);
-	trigger = _lttng_trigger_create(event_desc, id, trigger_group,
-		trigger_param, filter, itype);
+	trigger = _lttng_trigger_create(event_desc, id, error_counter_index,
+			trigger_group, trigger_param, filter, itype);
 	mutex_unlock(&sessions_mutex);
 	return trigger;
 }
@@ -1830,7 +1917,9 @@ void lttng_create_tracepoint_trigger_if_missing(struct lttng_trigger_enabler *tr
 			 * We need to create a trigger for this event probe.
 			 */
 			trigger = _lttng_trigger_create(desc,
-				trigger_enabler->id, trigger_group, NULL, NULL,
+				trigger_enabler->id,
+				trigger_enabler->error_counter_index,
+				trigger_group, NULL, NULL,
 				LTTNG_KERNEL_TRACEPOINT);
 			if (IS_ERR(trigger)) {
 				printk(KERN_INFO "Unable to create trigger %s\n",
@@ -2200,6 +2289,7 @@ struct lttng_trigger_enabler *lttng_trigger_enabler_create(
 	INIT_LIST_HEAD(&trigger_enabler->capture_bytecode_head);
 
 	trigger_enabler->id = trigger_param->id;
+	trigger_enabler->error_counter_index = trigger_param->error_counter_index;
 	trigger_enabler->num_captures = 0;
 
 	memcpy(&trigger_enabler->base.event_param.name, trigger_param->name,

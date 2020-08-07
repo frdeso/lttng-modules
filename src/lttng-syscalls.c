@@ -1002,6 +1002,7 @@ static int create_matching_triggers(struct lttng_trigger_enabler *trigger_enable
 	struct lttng_trigger_group *group = trigger_enabler->group;
 	const struct lttng_event_desc *desc;
 	uint64_t id = trigger_enabler->id;
+	uint64_t error_counter_index = trigger_enabler->error_counter_index;
 	unsigned int i;
 	int ret = 0;
 
@@ -1041,8 +1042,9 @@ static int create_matching_triggers(struct lttng_trigger_enabler *trigger_enable
 		trigger_param.name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
 		trigger_param.instrumentation = LTTNG_KERNEL_SYSCALL;
 
-		trigger = _lttng_trigger_create(desc, id, group,
-			&trigger_param, filter, trigger_param.instrumentation);
+		trigger = _lttng_trigger_create(desc, id, error_counter_index,
+			group, &trigger_param, filter,
+			trigger_param.instrumentation);
 		if (IS_ERR(trigger)) {
 			printk(KERN_INFO "Unable to create trigger %s\n",
 				desc->name);

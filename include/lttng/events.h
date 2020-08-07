@@ -348,6 +348,7 @@ struct lttng_event {
 struct lttng_trigger {
 	enum lttng_event_type evtype;	/* First field. */
 	uint64_t id;
+	uint64_t error_counter_index;
 	int enabled;
 	int registered;			/* has reg'd tracepoint probe */
 	const struct lttng_event_desc *desc;
@@ -411,6 +412,7 @@ struct lttng_event_enabler {
 struct lttng_trigger_enabler {
 	struct lttng_enabler base;
 	uint64_t id;
+	uint64_t error_counter_index;
 	struct list_head node;	/* List of trigger enablers */
 	struct lttng_trigger_group *group;
 
@@ -660,6 +662,13 @@ struct lttng_session {
 	char creation_time[LTTNG_KERNEL_SESSION_CREATION_TIME_ISO8601_LEN];
 };
 
+struct counter {
+	struct file *file;		/* File associated to counter. */
+	struct lttng_counter_transport *transport;
+	struct lib_counter *counter;
+	struct lttng_counter_ops *ops;
+};
+
 struct lttng_trigger_group {
 	struct file *file;		/* File associated to trigger group */
 	struct file *notif_file;	/* File used to expose notifications to userspace. */
@@ -670,6 +679,7 @@ struct lttng_trigger_group {
 	struct lttng_ctx *ctx;		    /* Contexts for filters. */
 	struct lttng_channel_ops *ops;
 	struct lttng_transport *transport;
+	struct lttng_counter_transport *counter_transport;
 	struct channel *chan;		/* Ring buffer channel for trigger group. */
 	struct lib_ring_buffer *buf;	/* Ring buffer for trigger group. */
 	wait_queue_head_t read_wait;
@@ -677,6 +687,8 @@ struct lttng_trigger_group {
 
 	struct list_head *trigger_syscall_dispatch;
 	struct list_head *trigger_compat_syscall_dispatch;
+
+	struct counter *error_counter;
 
 	unsigned int syscall_all:1,
 		sys_enter_registered:1;
@@ -726,7 +738,15 @@ int lttng_session_metadata_regenerate(struct lttng_session *session);
 int lttng_session_statedump(struct lttng_session *session);
 void metadata_cache_destroy(struct kref *kref);
 
+
+struct counter *lttng_kernel_counter_create(const char *counter_transport_name,
+		size_t number_dimensions, const int64_t *dimensions_sizes);
+int lttng_kernel_counter_value(struct counter *counter,
+		int64_t *dimension_indexes, int64_t *val);
+
 struct lttng_trigger_group *lttng_trigger_group_create(void);
+int lttng_trigger_group_create_error_counter(struct file *trigger_group_file,
+		const struct lttng_kernel_counter_conf *error_counter_conf);
 void lttng_trigger_group_destroy(struct lttng_trigger_group *trigger_group);
 
 struct lttng_channel *lttng_channel_create(struct lttng_session *session,
@@ -761,6 +781,7 @@ struct lttng_event *lttng_event_compat_old_create(struct lttng_channel *chan,
 struct lttng_trigger *lttng_trigger_create(
 				const struct lttng_event_desc *trigger_desc,
 				uint64_t id,
+				uint64_t error_counter_idx,
 				struct lttng_trigger_group *trigger_group,
 				struct lttng_kernel_trigger *trigger_param,
 				void *filter,
@@ -768,6 +789,7 @@ struct lttng_trigger *lttng_trigger_create(
 struct lttng_trigger *_lttng_trigger_create(
 				const struct lttng_event_desc *trigger_desc,
 				uint64_t id,
+				uint64_t error_counter_idx,
 				struct lttng_trigger_group *trigger_group,
 				struct lttng_kernel_trigger *trigger_param,
 				void *filter,

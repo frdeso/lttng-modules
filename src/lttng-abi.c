@@ -1852,6 +1852,7 @@ int lttng_abi_create_trigger(struct file *trigger_group_file,
 		 * will stay invariant for the rest of the session.
 		 */
 		trigger = lttng_trigger_create(NULL, trigger_param->id,
+			trigger_param->error_counter_index,
 			trigger_group, trigger_param, NULL,
 			trigger_param->instrumentation);
 		WARN_ON_ONCE(!trigger);
@@ -1877,6 +1878,133 @@ inval_instr:
 }
 
 static
+int lttng_counter_release(struct inode *inode, struct file *file)
+{
+	struct counter *counter = file->private_data;
+
+	counter->ops->counter_destroy(counter->counter);
+	module_put(counter->transport->owner);
+	lttng_kvfree(counter);
+
+	return -1;
+}
+
+static
+long lttng_counter_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+{
+	struct counter *counter = file->private_data;
+
+	switch (cmd) {
+	case LTTNG_KERNEL_COUNTER_VALUE:
+	{
+		struct lttng_kernel_counter_value *counter_value =
+				(struct lttng_kernel_counter_value *) arg;
+		int64_t value;
+		int ret;
+
+		printk(KERN_WARNING "LTTng: counter ioctl get value.\n");
+
+		ret = lttng_kernel_counter_value(counter,
+				counter_value->dimension_indexes, &value);
+		if (ret)
+			return -EFAULT;
+
+		if (copy_to_user(&counter_value->value, &value, sizeof(int64_t)))
+			return -EFAULT;
+
+		return 0;
+	}
+	default:
+		WARN_ON_ONCE(1);
+		return -ENOSYS;
+	}
+}
+
+static const struct file_operations lttng_counter_fops = {
+	.owner = THIS_MODULE,
+	.release = lttng_counter_release,
+	.unlocked_ioctl = lttng_counter_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl = lttng_counter_ioctl,
+#endif
+};
+
+static
+long lttng_abi_trigger_group_create_error_counter(
+		struct file *trigger_group_file,
+		const struct lttng_kernel_counter_conf *error_counter_conf)
+{
+	int counter_fd, ret;
+	char *counter_transport_name;
+	struct counter *counter = NULL;
+	struct file *counter_file;
+	struct lttng_trigger_group *trigger_group =
+			(struct lttng_trigger_group *) trigger_group_file->private_data;
+
+	counter_fd = lttng_get_unused_fd();
+	if (counter_fd < 0) {
+		ret = counter_fd;
+		goto fd_error;
+	}
+
+	/* FIXME: Does it need to be RDWR ?*/
+	counter_file = anon_inode_getfile("[lttng_counter]",
+				       &lttng_counter_fops,
+				       NULL, O_RDWR);
+	if (IS_ERR(counter_file)) {
+		ret = PTR_ERR(counter_file);
+		goto file_error;
+	}
+
+	if (error_counter_conf->type != LTTNG_KERNEL_COUNTER_TYPE_OVERFLOW) {
+		return -EINVAL;
+	}
+
+	switch (error_counter_conf->bitness) {
+	case LTTNG_KERNEL_COUNTER_BITNESS_64BITS:
+		counter_transport_name = "counter-per-cpu-64-overflow";
+		break;
+	case LTTNG_KERNEL_COUNTER_BITNESS_32BITS:
+		counter_transport_name = "counter-per-cpu-32-overflow";
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	if (!atomic_long_add_unless(&trigger_group_file->f_count, 1, LONG_MAX)) {
+		ret = -EOVERFLOW;
+		goto refcount_error;
+	}
+
+	counter = lttng_kernel_counter_create(counter_transport_name,
+			error_counter_conf->number_dimensions,
+			error_counter_conf->dimension_sizes);
+	if (!counter) {
+		ret = -EINVAL;
+		goto counter_error;
+	}
+
+	counter->file = counter_file;
+	counter_file->private_data = counter;
+
+	trigger_group->error_counter = counter;
+	/* Ownership transfered. */
+	counter = NULL;
+
+	fd_install(counter_fd, counter_file);
+	return counter_fd;
+
+counter_error:
+	atomic_long_dec(&trigger_group_file->f_count);
+refcount_error:
+	fput(counter_file);
+file_error:
+	put_unused_fd(counter_fd);
+fd_error:
+	return ret;
+}
+
+static
 long lttng_trigger_group_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	switch (cmd) {
@@ -1893,6 +2021,18 @@ long lttng_trigger_group_ioctl(struct file *file, unsigned int cmd, unsigned lon
 				sizeof(utrigger_param)))
 			return -EFAULT;
 		return lttng_abi_create_trigger(file, &utrigger_param);
+	}
+	case LTTNG_KERNEL_COUNTER:
+	{
+		struct lttng_kernel_counter_conf uerror_counter_conf;
+
+		printk(KERN_WARNING "LTTng: trigger group ioctl counter.\n");
+		if (copy_from_user(&uerror_counter_conf,
+				(struct lttng_kernel_counter_conf __user *) arg,
+				sizeof(uerror_counter_conf)))
+			return -EFAULT;
+		return lttng_abi_trigger_group_create_error_counter(file,
+				&uerror_counter_conf);
 	}
 	default:
 		return -ENOIOCTLCMD;
