@@ -51,6 +51,7 @@ enum lib_counter_arithmetic {
 
 struct lib_counter {
 	size_t nr_dimensions;
+	size_t allocated_elem;
 	struct lib_counter_dimension *dimensions;
 	enum lib_counter_arithmetic arithmetic;
 	union {

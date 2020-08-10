@@ -59,6 +59,10 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	struct lib_counter_layout *layout;
 	int64_t move_sum = 0;
 
+	if (unlikely(index >= counter->allocated_elem)) {
+		WARN_ON_ONCE(1);
+		return 0;
+	}
 	switch (alloc) {
 	case COUNTER_ALLOC_PER_CPU:
 		layout = per_cpu_ptr(counter->percpu_counters, smp_processor_id());
