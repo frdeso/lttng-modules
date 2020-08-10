@@ -39,9 +39,9 @@ struct lib_counter_dimension {
 };
 
 struct lib_counter_layout {
-	void *counters;	/* union v_atomic elements. */
-	void *underflow_bitmap;
-	void *overflow_bitmap;
+	void *counters;
+	unsigned long *underflow_bitmap;
+	unsigned long *overflow_bitmap;
 };
 
 enum lib_counter_arithmetic {

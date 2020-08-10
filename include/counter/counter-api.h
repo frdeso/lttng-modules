@@ -58,7 +58,6 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	bool overflow = false, underflow = false;
 	struct lib_counter_layout *layout;
 	int64_t move_sum = 0;
-	void *p;
 
 	switch (alloc) {
 	case COUNTER_ALLOC_PER_CPU:
@@ -68,11 +67,10 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 		layout = &counter->global_counters;
 		break;
 	}
-	p = layout->counters + index * config->counter_size;
 	switch (config->counter_size) {
 	case COUNTER_SIZE_8_BIT:
 	{
-		int8_t *int_p = p;
+		int8_t *int_p = (int8_t *) layout->counters + index;
 		int8_t old, n, res;
 		int8_t global_sum_step = counter->global_sum_step.s8;
 
@@ -111,7 +109,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	}
 	case COUNTER_SIZE_16_BIT:
 	{
-		int16_t *int_p = p;
+		int16_t *int_p = (int16_t *) layout->counters + index;
 		int16_t old, n, res;
 		int16_t global_sum_step = counter->global_sum_step.s16;
 
@@ -154,7 +152,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 	}
 	case COUNTER_SIZE_32_BIT:
 	{
-		int32_t *int_p = p;
+		int32_t *int_p = (int32_t *) layout->counters + index;
 		int32_t old, n, res;
 		int32_t global_sum_step = counter->global_sum_step.s32;
 
@@ -194,7 +192,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 #if BITS_PER_LONG == 64
 	case COUNTER_SIZE_64_BIT:
 	{
-		int64_t *int_p = p;
+		int64_t *int_p = (int64_t *) layout->counters + index;
 		int64_t old, n, res;
 		int64_t global_sum_step = counter->global_sum_step.s64;
 

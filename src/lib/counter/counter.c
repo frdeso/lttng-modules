@@ -200,7 +200,6 @@ int lttng_counter_read(const struct lib_counter_config *config,
 {
 	size_t index = lttng_counter_get_index(config, counter, dimension_indexes);
 	struct lib_counter_layout *layout;
-	void *p;
 
 	switch (config->alloc) {
 	case COUNTER_ALLOC_PER_CPU:
@@ -220,30 +219,29 @@ int lttng_counter_read(const struct lib_counter_config *config,
 	default:
 		return -EINVAL;
 	}
-	p = layout->counters + index * config->counter_size;
 	switch (config->counter_size) {
 	case COUNTER_SIZE_8_BIT:
 	{
-		int8_t *int_p = p;
+		int8_t *int_p = (int8_t *) layout->counters + index;
 		*value = (int64_t) READ_ONCE(*int_p);
 		break;
 	}
 	case COUNTER_SIZE_16_BIT:
 	{
-		int16_t *int_p = p;
+		int16_t *int_p = (int16_t *) layout->counters + index;
 		*value = (int64_t) READ_ONCE(*int_p);
 		break;
 	}
 	case COUNTER_SIZE_32_BIT:
 	{
-		int32_t *int_p = p;
+		int32_t *int_p = (int32_t *) layout->counters + index;
 		*value = (int64_t) READ_ONCE(*int_p);
 		break;
 	}
 #if BITS_PER_LONG == 64
 	case COUNTER_SIZE_64_BIT:
 	{
-		int64_t *int_p = p;
+		int64_t *int_p = (int64_t *) layout->counters + index;
 		*value = READ_ONCE(*int_p);
 		break;
 	}
