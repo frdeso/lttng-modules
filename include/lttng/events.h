@@ -504,8 +504,16 @@ struct lttng_counter_ops {
 	void (*counter_destroy)(struct lib_counter *counter);
 	void (*counter_add)(struct lib_counter *counter, long *dimension_indexes,
 			long v);
+	/*
+	 * counter_read reads a specific cpu's counter if @cpu >= 0, or
+	 * the global aggregation counter if @cpu == -1.
+	 */
 	int (*counter_read)(struct lib_counter *counter, long *dimension_indexes, int cpu,
 			int64_t *value, bool *overflow, bool *underflow);
+	/*
+	 * counter_aggregate returns the total sum of all per-cpu counters and
+	 * the global aggregation counter.
+	 */
 	int (*counter_aggregate)(struct lib_counter *counter, long *dimension_indexes, int64_t *value,
 				 bool *overflow, bool *underflow);
 };
