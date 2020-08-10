@@ -62,7 +62,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 
 	switch (alloc) {
 	case COUNTER_ALLOC_PER_CPU:
-		layout = &counter->percpu_counters[smp_processor_id()];
+		layout = per_cpu_ptr(counter->percpu_counters, smp_processor_id());
 		break;
 	case COUNTER_ALLOC_GLOBAL:
 		layout = &counter->global_counters;
