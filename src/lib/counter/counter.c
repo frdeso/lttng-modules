@@ -137,6 +137,7 @@ struct lib_counter *lttng_counter_create(const struct lib_counter_config *config
 	counter = kzalloc(sizeof(struct lib_counter), GFP_KERNEL);
 	if (!counter)
 		return NULL;
+	counter->config = *config;
 	if (lttng_counter_set_global_sum_step(counter, global_sum_step))
 		goto error_sum_step;
 	counter->nr_dimensions = nr_dimensions;
@@ -145,7 +146,6 @@ struct lib_counter *lttng_counter_create(const struct lib_counter_config *config
 		goto error_dimensions;
 	for (i = 0; i < nr_dimensions; i++)
 		counter->dimensions[i].max_nr_elem = max_nr_elem[i];
-	counter->config = *config;
 	if (config->alloc == COUNTER_ALLOC_PER_CPU) {
 		counter->percpu_counters = alloc_percpu(struct lib_counter_layout);
 		if (!counter->percpu_counters)
