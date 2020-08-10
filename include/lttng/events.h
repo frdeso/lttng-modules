@@ -497,8 +497,6 @@ struct lttng_channel_ops {
 			uint64_t *id);
 };
 
-struct lib_counter_dimension;
-
 struct lttng_counter_ops {
 	struct lib_counter *(*counter_create)(size_t nr_dimensions,
 			const size_t *max_nr_elem,	/* for each dimension */
