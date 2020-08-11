@@ -24,7 +24,7 @@ static void lttng_counter_init_stride(const struct lib_counter_config *config,
 	size_t nr_dimensions = counter->nr_dimensions, stride = 1;
 	ssize_t i;
 
-	for (i = nr_dimensions; i >= 0; i--) {
+	for (i = nr_dimensions - 1; i >= 0; i--) {
 		struct lib_counter_dimension *dimension = &counter->dimensions[i];
 
 		dimension->stride = stride;
