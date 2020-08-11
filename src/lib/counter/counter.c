@@ -306,6 +306,7 @@ int lttng_counter_aggregate(const struct lib_counter_config *config,
 	default:
 		return -EINVAL;
 	}
+	*value = sum;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(lttng_counter_aggregate);
