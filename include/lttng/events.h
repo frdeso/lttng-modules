@@ -516,6 +516,7 @@ struct lttng_counter_ops {
 	 */
 	int (*counter_aggregate)(struct lib_counter *counter, long *dimension_indexes, int64_t *value,
 				 bool *overflow, bool *underflow);
+	int (*counter_clear)(struct lib_counter *counter, long *dimension_indexes);
 };
 
 struct lttng_transport {

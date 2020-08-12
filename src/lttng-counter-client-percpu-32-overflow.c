@@ -52,6 +52,11 @@ static int counter_aggregate(struct lib_counter *counter, long *dimension_indexe
 				       overflow, underflow);
 }
 
+static int counter_clear(struct lib_counter *counter, long *dimension_indexes)
+{
+	return lttng_counter_clear(&client_config, counter, dimension_indexes);
+}
+
 static struct lttng_counter_transport lttng_counter_transport = {
 	.name = "counter-per-cpu-32-overflow",
 	.owner = THIS_MODULE,
@@ -61,6 +66,7 @@ static struct lttng_counter_transport lttng_counter_transport = {
 		.counter_add = counter_add,
 		.counter_read = counter_read,
 		.counter_aggregate = counter_aggregate,
+		.counter_clear = counter_clear,
 	},
 };
 
