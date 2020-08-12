@@ -141,10 +141,6 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 				n = (int16_t) ((uint16_t) old + (uint16_t) v);
 				res = cmpxchg(int_p, old, n);
 			} while (old != res);
-			if (v > 0 && (long)old + v > S16_MAX)
-				overflow = true;
-			else if (v < 0 && (long)old + v < S16_MIN)
-				underflow = true;
 			break;
 		}
 		}
