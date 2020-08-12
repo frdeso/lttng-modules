@@ -28,8 +28,8 @@ static inline size_t lttng_counter_overflow_index(struct lib_counter_dimension *
 
 /* Update dimension_indexes if index is outside range. */
 static inline void lttng_counter_validate_indexes(const struct lib_counter_config *config,
-						    struct lib_counter *counter,
-						    long *dimension_indexes)
+						  struct lib_counter *counter,
+						  long *dimension_indexes)
 {
 	size_t nr_dimensions = counter->nr_dimensions, i;
 
@@ -281,14 +281,14 @@ static inline void lttng_counter_add(const struct lib_counter_config *config,
 
 static inline void lttng_counter_inc(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     size_t *dimension_indexes)
+				     long *dimension_indexes)
 {
 	lttng_counter_add(config, counter, dimension_indexes, 1);
 }
 
 static inline void lttng_counter_dec(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     size_t *dimension_indexes)
+				     long *dimension_indexes)
 {
 	lttng_counter_add(config, counter, dimension_indexes, -1);
 }

@@ -33,7 +33,7 @@ static void counter_destroy(struct lib_counter *counter)
 	return lttng_counter_destroy(counter);
 }
 
-static void counter_add(struct lib_counter *counter, long *dimension_indexes, long v)
+static void counter_add(struct lib_counter *counter, long *dimension_indexes, int64_t v)
 {
 	return lttng_counter_add(&client_config, counter, dimension_indexes, v);
 }
