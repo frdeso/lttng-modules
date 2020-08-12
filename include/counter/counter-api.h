@@ -29,13 +29,13 @@ static inline size_t lttng_counter_overflow_index(struct lib_counter_dimension *
 /* Update dimension_indexes if index is outside range. */
 static inline void lttng_counter_validate_indexes(const struct lib_counter_config *config,
 						  struct lib_counter *counter,
-						  long *dimension_indexes)
+						  int64_t *dimension_indexes)
 {
 	size_t nr_dimensions = counter->nr_dimensions, i;
 
 	for (i = 0; i < nr_dimensions; i++) {
 		struct lib_counter_dimension *dimension = &counter->dimensions[i];
-		long *dimension_index = &dimension_indexes[i];
+		int64_t *dimension_index = &dimension_indexes[i];
 
 		if (unlikely(*dimension_index < 0))
 			*dimension_index = lttng_counter_underflow_index(dimension);
@@ -52,7 +52,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 				       enum lib_counter_config_alloc alloc,
 				       enum lib_counter_config_sync sync,
 				       struct lib_counter *counter,
-				       long *dimension_indexes, int64_t v)
+				       int64_t *dimension_indexes, int64_t v)
 {
 	size_t index = lttng_counter_get_index(config, counter, dimension_indexes);
 	bool overflow = false, underflow = false;
@@ -246,7 +246,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 
 static inline void __lttng_counter_add_percpu(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     long *dimension_indexes, int64_t v)
+				     int64_t *dimension_indexes, int64_t v)
 {
 	int64_t move_sum;
 
@@ -259,7 +259,7 @@ static inline void __lttng_counter_add_percpu(const struct lib_counter_config *c
 
 static inline void __lttng_counter_add_global(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     long *dimension_indexes, int64_t v)
+				     int64_t *dimension_indexes, int64_t v)
 {
 	(void) __lttng_counter_add(config, config->alloc, config->sync, counter,
 				   dimension_indexes, v);
@@ -267,7 +267,7 @@ static inline void __lttng_counter_add_global(const struct lib_counter_config *c
 
 static inline void lttng_counter_add(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     long *dimension_indexes, int64_t v)
+				     int64_t *dimension_indexes, int64_t v)
 {
 	switch (config->alloc) {
 	case COUNTER_ALLOC_PER_CPU:
@@ -281,14 +281,14 @@ static inline void lttng_counter_add(const struct lib_counter_config *config,
 
 static inline void lttng_counter_inc(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     long *dimension_indexes)
+				     int64_t *dimension_indexes)
 {
 	lttng_counter_add(config, counter, dimension_indexes, 1);
 }
 
 static inline void lttng_counter_dec(const struct lib_counter_config *config,
 				     struct lib_counter *counter,
-				     long *dimension_indexes)
+				     int64_t *dimension_indexes)
 {
 	lttng_counter_add(config, counter, dimension_indexes, -1);
 }

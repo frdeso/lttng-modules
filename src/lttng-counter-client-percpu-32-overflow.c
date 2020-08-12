@@ -33,26 +33,26 @@ static void counter_destroy(struct lib_counter *counter)
 	return lttng_counter_destroy(counter);
 }
 
-static void counter_add(struct lib_counter *counter, long *dimension_indexes, int64_t v)
+static void counter_add(struct lib_counter *counter, int64_t *dimension_indexes, int64_t v)
 {
 	return lttng_counter_add(&client_config, counter, dimension_indexes, v);
 }
 
-static int counter_read(struct lib_counter *counter, long *dimension_indexes, int cpu,
+static int counter_read(struct lib_counter *counter, int64_t *dimension_indexes, int cpu,
 			int64_t *value, bool *overflow, bool *underflow)
 {
 	return lttng_counter_read(&client_config, counter, dimension_indexes, cpu, value,
 				  overflow, underflow);
 }
 
-static int counter_aggregate(struct lib_counter *counter, long *dimension_indexes,
+static int counter_aggregate(struct lib_counter *counter, int64_t *dimension_indexes,
 			     int64_t *value, bool *overflow, bool *underflow)
 {
 	return lttng_counter_aggregate(&client_config, counter, dimension_indexes, value,
 				       overflow, underflow);
 }
 
-static int counter_clear(struct lib_counter *counter, long *dimension_indexes)
+static int counter_clear(struct lib_counter *counter, int64_t *dimension_indexes)
 {
 	return lttng_counter_clear(&client_config, counter, dimension_indexes);
 }

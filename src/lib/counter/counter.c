@@ -195,7 +195,7 @@ EXPORT_SYMBOL_GPL(lttng_counter_destroy);
 
 int lttng_counter_read(const struct lib_counter_config *config,
 		       struct lib_counter *counter,
-		       long *dimension_indexes,
+		       int64_t *dimension_indexes,
 		       int cpu, int64_t *value, bool *overflow,
 		       bool *underflow)
 {
@@ -262,7 +262,7 @@ EXPORT_SYMBOL_GPL(lttng_counter_read);
 
 int lttng_counter_aggregate(const struct lib_counter_config *config,
 			    struct lib_counter *counter,
-			    long *dimension_indexes,
+			    int64_t *dimension_indexes,
 			    int64_t *value, bool *overflow,
 			    bool *underflow)
 {
@@ -314,7 +314,7 @@ EXPORT_SYMBOL_GPL(lttng_counter_aggregate);
 static
 int lttng_counter_clear_cpu(const struct lib_counter_config *config,
 			    struct lib_counter *counter,
-			    long *dimension_indexes,
+			    int64_t *dimension_indexes,
 			    int cpu)
 {
 	size_t index = lttng_counter_get_index(config, counter, dimension_indexes);
@@ -379,7 +379,7 @@ int lttng_counter_clear_cpu(const struct lib_counter_config *config,
 
 int lttng_counter_clear(const struct lib_counter_config *config,
 			struct lib_counter *counter,
-			long *dimension_indexes)
+			int64_t *dimension_indexes)
 {
 	int cpu, ret;
 

@@ -17,14 +17,14 @@
 
 static inline size_t lttng_counter_get_index(const struct lib_counter_config *config,
 					     struct lib_counter *counter,
-					     long *dimension_indexes)
+					     int64_t *dimension_indexes)
 {
 	size_t nr_dimensions = counter->nr_dimensions, i;
 	size_t index = 0;
 
 	for (i = 0; i < nr_dimensions; i++) {
 		struct lib_counter_dimension *dimension = &counter->dimensions[i];
-		long *dimension_index = &dimension_indexes[i];
+		int64_t *dimension_index = &dimension_indexes[i];
 
 		index += *dimension_index * dimension->stride;
 	}

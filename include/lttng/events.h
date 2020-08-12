@@ -502,21 +502,21 @@ struct lttng_counter_ops {
 			const size_t *max_nr_elem,	/* for each dimension */
 			int64_t global_sum_step);
 	void (*counter_destroy)(struct lib_counter *counter);
-	void (*counter_add)(struct lib_counter *counter, long *dimension_indexes,
+	void (*counter_add)(struct lib_counter *counter, int64_t *dimension_indexes,
 			int64_t v);
 	/*
 	 * counter_read reads a specific cpu's counter if @cpu >= 0, or
 	 * the global aggregation counter if @cpu == -1.
 	 */
-	int (*counter_read)(struct lib_counter *counter, long *dimension_indexes, int cpu,
+	int (*counter_read)(struct lib_counter *counter, int64_t *dimension_indexes, int cpu,
 			 int64_t *value, bool *overflow, bool *underflow);
 	/*
 	 * counter_aggregate returns the total sum of all per-cpu counters and
 	 * the global aggregation counter.
 	 */
-	int (*counter_aggregate)(struct lib_counter *counter, long *dimension_indexes,
+	int (*counter_aggregate)(struct lib_counter *counter, int64_t *dimension_indexes,
 			int64_t *value, bool *overflow, bool *underflow);
-	int (*counter_clear)(struct lib_counter *counter, long *dimension_indexes);
+	int (*counter_clear)(struct lib_counter *counter, int64_t *dimension_indexes);
 };
 
 struct lttng_transport {
