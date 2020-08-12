@@ -311,6 +311,101 @@ int lttng_counter_aggregate(const struct lib_counter_config *config,
 }
 EXPORT_SYMBOL_GPL(lttng_counter_aggregate);
 
+static
+int lttng_counter_clear_cpu(const struct lib_counter_config *config,
+			    struct lib_counter *counter,
+			    size_t *dimension_indexes,
+			    int cpu)
+{
+	size_t index = lttng_counter_get_index(config, counter, dimension_indexes);
+	struct lib_counter_layout *layout;
+
+	if (unlikely(index >= counter->allocated_elem)) {
+		WARN_ON_ONCE(1);
+		return -EOVERFLOW;
+	}
+	switch (config->alloc) {
+	case COUNTER_ALLOC_PER_CPU:
+		if (cpu >= 0) {
+			if (cpu >= num_possible_cpus())
+				return -EINVAL;
+			layout = per_cpu_ptr(counter->percpu_counters, cpu);
+		} else {
+			layout = &counter->global_counters;
+		}
+		break;
+	case COUNTER_ALLOC_GLOBAL:
+		if (cpu >= 0)
+			return -EINVAL;
+		layout = &counter->global_counters;
+		break;
+	default:
+		return -EINVAL;
+	}
+	switch (config->counter_size) {
+	case COUNTER_SIZE_8_BIT:
+	{
+		int8_t *int_p = (int8_t *) layout->counters + index;
+		WRITE_ONCE(*int_p, 0);
+		break;
+	}
+	case COUNTER_SIZE_16_BIT:
+	{
+		int16_t *int_p = (int16_t *) layout->counters + index;
+		WRITE_ONCE(*int_p, 0);
+		break;
+	}
+	case COUNTER_SIZE_32_BIT:
+	{
+		int32_t *int_p = (int32_t *) layout->counters + index;
+		WRITE_ONCE(*int_p, 0);
+		break;
+	}
+#if BITS_PER_LONG == 64
+	case COUNTER_SIZE_64_BIT:
+	{
+		int64_t *int_p = (int64_t *) layout->counters + index;
+		WRITE_ONCE(*int_p, 0);
+		break;
+	}
+#endif
+	default:
+		WARN_ON_ONCE(1);
+	}
+	clear_bit(index, layout->overflow_bitmap);
+	clear_bit(index, layout->underflow_bitmap);
+	return 0;
+}
+
+int lttng_counter_clear(const struct lib_counter_config *config,
+			struct lib_counter *counter,
+			size_t *dimension_indexes)
+{
+	int cpu, ret;
+
+	/* Read global counter. */
+	ret = lttng_counter_clear_cpu(config, counter, dimension_indexes, -1);
+	if (ret < 0)
+		return ret;
+
+	switch (config->alloc) {
+	case COUNTER_ALLOC_PER_CPU:
+		//TODO: integrate with CPU hotplug and online cpus
+		for (cpu = 0; cpu < num_possible_cpus(); cpu++) {
+			ret = lttng_counter_clear_cpu(config, counter, dimension_indexes, cpu);
+			if (ret < 0)
+				return ret;
+		}
+		break;
+	case COUNTER_ALLOC_GLOBAL:
+		break;
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+EXPORT_SYMBOL_GPL(lttng_counter_clear);
+
 MODULE_LICENSE("GPL and additional rights");
 MODULE_AUTHOR("Mathieu Desnoyers <mathieu.desnoyers@efficios.com>");
 MODULE_DESCRIPTION("LTTng counter library");

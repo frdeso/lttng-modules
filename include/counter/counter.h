@@ -32,5 +32,8 @@ int lttng_counter_aggregate(const struct lib_counter_config *config,
 			    size_t *dimension_indexes,
 			    int64_t *value,
 			    bool *overflow, bool *underflow);
+int lttng_counter_clear(const struct lib_counter_config *config,
+			struct lib_counter *counter,
+			size_t *dimension_indexes);
 
 #endif /* _LTTNG_COUNTER_H */
