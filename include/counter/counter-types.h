@@ -15,7 +15,10 @@
 #include <counter/config.h>
 
 /*
- * Using int64_t (signed) type for indexes mainly because this is the
+ * We expect the user to pass positive or negative dimension indexes
+ * received as arguments from tracepoints.
+ *
+ * Use int64_t (signed) type for indexes mainly because this is the
  * expected input to lttng_counter_validate_indexes(), and it is
  * expected to handle both dimension indexes < 0 and >= max_nr_elem for
  * each dimension, selecting underflow and overflow indexes accordingly.
