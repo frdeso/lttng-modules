@@ -16,12 +16,12 @@
 #include <counter/counter.h>
 #include <counter/counter-internal.h>
 
-static inline size_t lttng_counter_underflow_index(struct lib_counter_dimension *dimension)
+static inline int64_t lttng_counter_underflow_index(struct lib_counter_dimension *dimension)
 {
 	return dimension->max_nr_elem + 1;
 }
 
-static inline size_t lttng_counter_overflow_index(struct lib_counter_dimension *dimension)
+static inline int64_t lttng_counter_overflow_index(struct lib_counter_dimension *dimension)
 {
 	return dimension->max_nr_elem + 2;
 }
@@ -54,7 +54,7 @@ static inline int64_t __lttng_counter_add(const struct lib_counter_config *confi
 				       struct lib_counter *counter,
 				       int64_t *dimension_indexes, int64_t v)
 {
-	size_t index = lttng_counter_get_index(config, counter, dimension_indexes);
+	int64_t index = lttng_counter_get_index(config, counter, dimension_indexes);
 	bool overflow = false, underflow = false;
 	struct lib_counter_layout *layout;
 	int64_t move_sum = 0;

@@ -13,29 +13,37 @@
 #include <wrapper/vmalloc.h>
 
 /* Includes underflow and overflow elements. */
-static size_t lttng_counter_get_dimension_nr_elements(struct lib_counter_dimension *dimension)
+static int64_t lttng_counter_get_dimension_nr_elements(struct lib_counter_dimension *dimension)
 {
 	return dimension->max_nr_elem + 2;
 }
 
-static void lttng_counter_init_stride(const struct lib_counter_config *config,
+static int lttng_counter_init_stride(const struct lib_counter_config *config,
 				      struct lib_counter *counter)
 {
-	size_t nr_dimensions = counter->nr_dimensions, stride = 1;
+	size_t nr_dimensions = counter->nr_dimensions;
+	int64_t stride = 1;
 	ssize_t i;
 
 	for (i = nr_dimensions - 1; i >= 0; i--) {
 		struct lib_counter_dimension *dimension = &counter->dimensions[i];
+		int64_t nr_elem;
 
+		if (dimension->max_nr_elem < 0 || dimension->max_nr_elem > S64_MAX - 2)
+			return -EINVAL;
 		dimension->stride = stride;
-		stride *= lttng_counter_get_dimension_nr_elements(dimension);
+		nr_elem = lttng_counter_get_dimension_nr_elements(dimension);
+		//TODO: check if (stride * nr_elem > INT64_MAX)
+		stride *= nr_elem;
 	}
+	return 0;
 }
 
 static int lttng_counter_layout_init(struct lib_counter *counter, int cpu)
 {
 	struct lib_counter_layout *layout;
-	size_t counter_size, nr_elem = counter->allocated_elem;
+	size_t counter_size;
+	int64_t nr_elem = counter->allocated_elem;
 
 	if (cpu == -1)
 		layout = &counter->global_counters;
@@ -121,11 +129,12 @@ int lttng_counter_set_global_sum_step(struct lib_counter *counter,
 
 struct lib_counter *lttng_counter_create(const struct lib_counter_config *config,
 					 size_t nr_dimensions,
-					 const size_t *max_nr_elem,
+					 const int64_t *max_nr_elem,
 					 int64_t global_sum_step)
 {
 	struct lib_counter *counter;
-	size_t dimension, nr_elem = 1;
+	size_t dimension;
+	int64_t nr_elem = 1;
 	int cpu, ret;
 
 	if (BITS_PER_LONG != 64 && config->counter_size == COUNTER_SIZE_64_BIT) {
@@ -150,7 +159,8 @@ struct lib_counter *lttng_counter_create(const struct lib_counter_config *config
 			goto error_alloc_percpu;
 	}
 
-	lttng_counter_init_stride(config, counter);
+	if (lttng_counter_init_stride(config, counter))
+		goto error_init_stride;
 	//TODO saturation values.
 	for (dimension = 0; dimension < counter->nr_dimensions; dimension++)
 		nr_elem *= lttng_counter_get_dimension_nr_elements(&counter->dimensions[dimension]);
@@ -170,6 +180,7 @@ layout_init_error:
 	for (cpu = 0; cpu < num_possible_cpus(); cpu++)
 		lttng_counter_layout_fini(counter, cpu);
 	lttng_counter_layout_fini(counter, -1);
+error_init_stride:
 	free_percpu(counter->percpu_counters);
 error_alloc_percpu:
 	kfree(counter->dimensions);

@@ -29,13 +29,13 @@ struct lib_counter_dimension {
 	 * The allocated size for a dimension is max_nr_elem + 2 to keep
 	 * room for the underflow and overflow indexes.
 	 */
-	size_t max_nr_elem;
+	int64_t max_nr_elem;
 	/*
 	 * The stride for a dimension is the multiplication factor which
 	 * should be applied to its index to take into account other
 	 * dimensions nested inside.
 	 */
-	size_t stride;
+	int64_t stride;
 };
 
 struct lib_counter_layout {
@@ -51,7 +51,7 @@ enum lib_counter_arithmetic {
 
 struct lib_counter {
 	size_t nr_dimensions;
-	size_t allocated_elem;
+	int64_t allocated_elem;
 	struct lib_counter_dimension *dimensions;
 	enum lib_counter_arithmetic arithmetic;
 	union {
