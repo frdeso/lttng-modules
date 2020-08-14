@@ -31,10 +31,12 @@ static int lttng_counter_init_stride(const struct lib_counter_config *config,
 
 		if (dimension->max_nr_elem < 0 || dimension->max_nr_elem > S64_MAX - 2)
 			return -EINVAL;
-		dimension->stride = stride;
 		nr_elem = lttng_counter_get_dimension_nr_elements(dimension);
-		//TODO: check if (stride * nr_elem > INT64_MAX)
+		dimension->stride = stride;
+		/* nr_elem is never 0 (minimum 2). */
 		stride *= nr_elem;
+		if (stride > S64_MAX / nr_elem)
+			return -EINVAL;
 	}
 	return 0;
 }
