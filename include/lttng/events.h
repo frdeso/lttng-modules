@@ -208,12 +208,12 @@ struct lttng_ctx {
 struct lttng_event_desc {
 	const char *name;		/* lttng-modules name */
 	const char *kname;		/* Linux kernel name (tracepoints) */
-	void *probe_callback;
+	void *probe_callback;		/* store-event and count-event probe */
 	const struct lttng_event_ctx *ctx;	/* context */
 	const struct lttng_event_field *fields;	/* event payload */
 	unsigned int nr_fields;
 	struct module *owner;
-	void *event_notifier_callback;
+	void *event_notifier_callback;		/* notify probe */
 };
 
 struct lttng_probe_desc {
@@ -298,11 +298,13 @@ struct lttng_uprobe_handler {
 struct lttng_kprobe {
 	struct kprobe kp;
 	char *symbol_name;
+	uint64_t user_token;
 };
 
 struct lttng_uprobe {
 	struct inode *inode;
 	struct list_head head;
+	uint64_t user_token;
 };
 
 enum lttng_syscall_entryexit {
@@ -321,14 +323,19 @@ struct lttng_syscall {
 	bool is_compat;
 };
 
+enum lttng_event_container_type {
+	LTTNG_EVENT_CONTAINER_CHANNEL,
+	LTTNG_EVENT_CONTAINER_COUNTER,
+};
+
 /*
  * lttng_event structure is referred to by the tracing fast path. It must be
  * kept small.
  */
 struct lttng_event {
 	enum lttng_event_type evtype;	/* First field. */
-	unsigned int id;
-	struct lttng_channel *chan;
+	struct lttng_event_container *container;
+	size_t id;
 	int enabled;
 	const struct lttng_event_desc *desc;
 	void *filter;
@@ -339,6 +346,7 @@ struct lttng_event {
 		struct {
 			struct lttng_krp *lttng_krp;
 			char *symbol_name;
+			uint64_t user_token;
 		} kretprobe;
 		struct lttng_uprobe uprobe;
 		struct {
@@ -357,6 +365,9 @@ struct lttng_event {
 	/* list of struct lttng_bytecode_runtime, sorted by seqnum */
 	struct list_head filter_bytecode_runtime_head;
 	int has_enablers_without_bytecode;
+
+	/* List node of actions to perform (for syscall events). */
+	struct hlist_node action_list;
 };
 
 // FIXME: Really similar to lttng_event above. Could those be merged ?
@@ -418,7 +429,7 @@ struct lttng_enabler {
 struct lttng_event_enabler {
 	struct lttng_enabler base;
 	struct list_head node;	/* per-session list of enablers */
-	struct lttng_channel *chan;
+	struct lttng_event_container *container;
 	/*
 	 * Unused, but kept around to make it explicit that the tracer can do
 	 * it.
@@ -570,31 +581,15 @@ struct lttng_event_notifier_ht {
 struct lttng_channel {
 	unsigned int id;
 	struct channel *chan;		/* Channel buffers */
-	int enabled;
 	struct lttng_ctx *ctx;
 	/* Event ID management */
-	struct lttng_session *session;
-	struct file *file;		/* File associated to channel */
 	unsigned int free_event_id;	/* Next event ID to allocate */
 	struct list_head list;		/* Channel list */
 	struct lttng_channel_ops *ops;
 	struct lttng_transport *transport;
-	struct lttng_event **sc_table;	/* for syscall tracing */
-	struct lttng_event **compat_sc_table;
-	struct lttng_event **sc_exit_table;	/* for syscall exit tracing */
-	struct lttng_event **compat_sc_exit_table;
-	struct lttng_event *sc_unknown;	/* for unknown syscalls */
-	struct lttng_event *sc_compat_unknown;
-	struct lttng_event *sc_exit_unknown;
-	struct lttng_event *compat_sc_exit_unknown;
-	struct lttng_syscall_filter *sc_filter;
 	int header_type;		/* 0: unset, 1: compact, 2: large */
 	enum channel_type channel_type;
-	int syscall_all;
-	unsigned int metadata_dumped:1,
-		sys_enter_registered:1,
-		sys_exit_registered:1,
-		tstate:1;		/* Transient enable state */
+	unsigned int metadata_dumped:1;
 };
 
 struct lttng_metadata_stream {
@@ -658,6 +653,7 @@ struct lttng_session {
 	struct file *file;		/* File associated to session */
 	struct list_head chan;		/* Channel list head */
 	struct list_head events;	/* Event list head */
+	struct list_head counters;	/* Counters list head */
 	struct list_head list;		/* Session list */
 	unsigned int free_chan_id;	/* Next chan ID to allocate */
 	uuid_le uuid;			/* Trace session unique ID */
@@ -678,12 +674,65 @@ struct lttng_session {
 	char creation_time[LTTNG_KERNEL_SESSION_CREATION_TIME_ISO8601_LEN];
 };
 
+struct lttng_counter_map_descriptor {
+	uint64_t user_token;
+	size_t array_index;
+	char key[LTTNG_KERNEL_COUNTER_KEY_LEN];
+};
+
+struct lttng_counter_map {
+	struct lttng_counter_map_descriptor *descriptors;
+	size_t nr_descriptors;
+	size_t alloc_len;
+	struct mutex lock;		/* counter map lock */
+};
+
 struct lttng_counter {
-	struct file *file;		/* File associated to counter. */
 	struct file *owner;
 	struct lttng_counter_transport *transport;
 	struct lib_counter *counter;
 	struct lttng_counter_ops *ops;
+	struct list_head node;		/* Counter list (in session) */
+
+	size_t free_index;		/* Next index to allocate */
+	struct lttng_counter_map map;
+};
+
+/*
+ * An event can be contained within either a channel or a counter.
+ */
+struct lttng_event_container {
+	enum lttng_event_container_type type;
+	union {
+		struct lttng_channel channel;
+		struct lttng_counter counter;
+	} u;
+
+	struct file *file;			/* File associated to event container */
+	struct lttng_session *session;		/* Session containing the container */
+	int enabled;
+	struct hlist_head *sc_table;		/* for syscall tracing */
+	struct hlist_head *compat_sc_table;
+	struct hlist_head *sc_exit_table;	/* for syscall exit tracing */
+	struct hlist_head *compat_sc_exit_table;
+
+	/*
+	 * Combining all unknown syscall events works as long as they
+	 * are only matched by "all" syscalls enablers, but will require
+	 * a design change when we allow matching by syscall number, for
+	 * instance by allocating sc_tables accomodating NR_syscalls
+	 * entries.
+	 */
+	struct hlist_head sc_unknown;		/* for unknown syscalls */
+	struct hlist_head sc_compat_unknown;
+	struct hlist_head sc_exit_unknown;
+	struct hlist_head compat_sc_exit_unknown;
+
+	struct lttng_syscall_filter *sc_filter;
+	int syscall_all;
+	unsigned int sys_enter_registered:1,
+		sys_exit_registered:1,
+		tstate:1;			/* Transient enable state */
 };
 
 struct lttng_event_notifier_group {
@@ -723,6 +772,18 @@ struct lttng_metadata_cache {
 	uint64_t version;		/* Current version of the metadata */
 };
 
+static inline
+struct lttng_event_container *lttng_channel_get_event_container(struct lttng_channel *channel)
+{
+	return container_of(channel, struct lttng_event_container, u.channel);
+}
+
+static inline
+struct lttng_event_container *lttng_counter_get_event_container(struct lttng_counter *counter)
+{
+	return container_of(counter, struct lttng_event_container, u.counter);
+}
+
 void lttng_lock_sessions(void);
 void lttng_unlock_sessions(void);
 
@@ -731,7 +792,7 @@ struct list_head *lttng_get_probe_list_head(void);
 struct lttng_event_enabler *lttng_event_enabler_create(
 		enum lttng_enabler_format_type format_type,
 		struct lttng_kernel_event *event_param,
-		struct lttng_channel *chan);
+		struct lttng_event_container *container);
 
 int lttng_event_enabler_enable(struct lttng_event_enabler *event_enabler);
 int lttng_event_enabler_disable(struct lttng_event_enabler *event_enabler);
@@ -757,9 +818,11 @@ int lttng_session_metadata_regenerate(struct lttng_session *session);
 int lttng_session_statedump(struct lttng_session *session);
 void metadata_cache_destroy(struct kref *kref);
 
-struct lttng_counter *lttng_kernel_counter_create(
-		const char *counter_transport_name, size_t number_dimensions,
-		const size_t *dimensions_sizes);
+
+int lttng_event_notifier_group_set_error_counter(
+		struct lttng_event_notifier_group *event_notifier_group,
+		const char *counter_transport_name,
+		size_t counter_len);
 int lttng_kernel_counter_read(struct lttng_counter *counter,
 		const size_t *dimension_indexes, int32_t cpu,
 		int64_t *val, bool *overflow, bool *underflow);
@@ -769,6 +832,10 @@ int lttng_kernel_counter_aggregate(struct lttng_counter *counter,
 int lttng_kernel_counter_clear(struct lttng_counter *counter,
 		const size_t *dimension_indexes);
 
+int lttng_counter_append_descriptor(struct lttng_counter *counter,
+		uint64_t user_token,
+		size_t index,
+		const char *key);
 
 struct lttng_event_notifier_group *lttng_event_notifier_group_create(void);
 int lttng_event_notifier_group_create_error_counter(
@@ -777,34 +844,29 @@ int lttng_event_notifier_group_create_error_counter(
 void lttng_event_notifier_group_destroy(
 		struct lttng_event_notifier_group *event_notifier_group);
 
-struct lttng_channel *lttng_channel_create(struct lttng_session *session,
+struct lttng_event_container *lttng_channel_create(struct lttng_session *session,
 				       const char *transport_name,
 				       void *buf_addr,
 				       size_t subbuf_size, size_t num_subbuf,
 				       unsigned int switch_timer_interval,
 				       unsigned int read_timer_interval,
 				       enum channel_type channel_type);
-struct lttng_channel *lttng_global_channel_create(struct lttng_session *session,
-				       int overwrite, void *buf_addr,
-				       size_t subbuf_size, size_t num_subbuf,
-				       unsigned int switch_timer_interval,
-				       unsigned int read_timer_interval);
 
-void lttng_metadata_channel_destroy(struct lttng_channel *chan);
-struct lttng_event *lttng_event_create(struct lttng_channel *chan,
+void lttng_metadata_channel_destroy(struct lttng_event_container *container);
+struct lttng_event *lttng_event_create(struct lttng_event_container *container,
 				struct lttng_kernel_event *event_param,
 				void *filter,
 				const struct lttng_event_desc *event_desc,
 				enum lttng_kernel_instrumentation itype);
-struct lttng_event *_lttng_event_create(struct lttng_channel *chan,
+struct lttng_event *_lttng_event_create(struct lttng_event_container *container,
 				struct lttng_kernel_event *event_param,
 				void *filter,
 				const struct lttng_event_desc *event_desc,
 				enum lttng_kernel_instrumentation itype);
-struct lttng_event *lttng_event_compat_old_create(struct lttng_channel *chan,
-		struct lttng_kernel_old_event *old_event_param,
-		void *filter,
-		const struct lttng_event_desc *internal_desc);
+struct lttng_event_container *lttng_session_create_counter(
+	struct lttng_session *session,
+	const char *counter_transport_name,
+	size_t number_dimensions, const size_t *dimensions_sizes);
 
 struct lttng_event_notifier *lttng_event_notifier_create(
 				const struct lttng_event_desc *event_notifier_desc,
@@ -823,8 +885,8 @@ struct lttng_event_notifier *_lttng_event_notifier_create(
 				void *filter,
 				enum lttng_kernel_instrumentation itype);
 
-int lttng_channel_enable(struct lttng_channel *channel);
-int lttng_channel_disable(struct lttng_channel *channel);
+int lttng_event_container_enable(struct lttng_event_container *container);
+int lttng_event_container_disable(struct lttng_event_container *container);
 int lttng_event_enable(struct lttng_event *event);
 int lttng_event_disable(struct lttng_event *event);
 
@@ -875,14 +937,14 @@ int lttng_desc_match_enabler(const struct lttng_event_desc *desc,
 		struct lttng_enabler *enabler);
 
 #if defined(CONFIG_HAVE_SYSCALL_TRACEPOINTS)
-int lttng_syscalls_register_event(struct lttng_channel *chan, void *filter);
-int lttng_syscalls_unregister_event(struct lttng_channel *chan);
-int lttng_syscalls_destroy_event(struct lttng_channel *chan);
-int lttng_syscall_filter_enable_event(struct lttng_channel *chan,
+int lttng_syscalls_register_event(struct lttng_event_enabler *event_enabler, void *filter);
+int lttng_syscalls_unregister_event_container(struct lttng_event_container *event_container);
+int lttng_syscalls_destroy_event(struct lttng_event_container *container);
+int lttng_syscall_filter_enable_event(struct lttng_event_container *container,
 		struct lttng_event *event);
-int lttng_syscall_filter_disable_event(struct lttng_channel *chan,
+int lttng_syscall_filter_disable_event(struct lttng_event_container *container,
 		struct lttng_event *event);
-long lttng_channel_syscall_mask(struct lttng_channel *channel,
+long lttng_event_container_syscall_mask(struct lttng_event_container *container,
 		struct lttng_kernel_syscall_mask __user *usyscall_mask);
 
 int lttng_syscalls_register_event_notifier(

@@ -43,7 +43,8 @@ int _lttng_kretprobes_handler(struct kretprobe_instance *krpi,
 		.event = event,
 		.interruptible = !lttng_regs_irqs_disabled(regs),
 	};
-	struct lttng_channel *chan = event->chan;
+	struct lttng_event_container *container = event->container;
+	struct lttng_channel *chan = &container->u.channel;
 	struct lib_ring_buffer_ctx ctx;
 	int ret;
 	struct {
@@ -51,9 +52,9 @@ int _lttng_kretprobes_handler(struct kretprobe_instance *krpi,
 		unsigned long parent_ip;
 	} payload;
 
-	if (unlikely(!LTTNG_READ_ONCE(chan->session->active)))
+	if (unlikely(!LTTNG_READ_ONCE(container->session->active)))
 		return 0;
-	if (unlikely(!LTTNG_READ_ONCE(chan->enabled)))
+	if (unlikely(!LTTNG_READ_ONCE(container->enabled)))
 		return 0;
 	if (unlikely(!LTTNG_READ_ONCE(event->enabled)))
 		return 0;

@@ -496,32 +496,12 @@ void __event_notifier_template_proto___##_name(void);
 
 #undef LTTNG_TRACEPOINT_EVENT_CLASS_CODE
 #define LTTNG_TRACEPOINT_EVENT_CLASS_CODE(_name, _proto, _args, _locvar, _code_pre, _fields, _code_post) \
-static void __event_probe__##_name(void *__data, _proto);
-
-#undef LTTNG_TRACEPOINT_EVENT_CLASS_CODE_NOARGS
-#define LTTNG_TRACEPOINT_EVENT_CLASS_CODE_NOARGS(_name, _locvar, _code_pre, _fields, _code_post) \
-static void __event_probe__##_name(void *__data);
-
-#include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
-
-/*
- * Stage 3.1 of the trace event_notifiers.
- *
- * Create event_notifier probe callback prototypes.
- */
-
-/* Reset all macros within TRACEPOINT_EVENT */
-#include <lttng/events-reset.h>
-
-#undef TP_PROTO
-#define TP_PROTO(...)	__VA_ARGS__
-
-#undef LTTNG_TRACEPOINT_EVENT_CLASS_CODE
-#define LTTNG_TRACEPOINT_EVENT_CLASS_CODE(_name, _proto, _args, _locvar, _code_pre, _fields, _code_post) \
+static void __event_probe__##_name(void *__data, _proto);		\
 static void __event_notifier_probe__##_name(void *__data, _proto);
 
 #undef LTTNG_TRACEPOINT_EVENT_CLASS_CODE_NOARGS
 #define LTTNG_TRACEPOINT_EVENT_CLASS_CODE_NOARGS(_name, _locvar, _code_pre, _fields, _code_post) \
+static void __event_probe__##_name(void *__data);			\
 static void __event_notifier_probe__##_name(void *__data);
 
 #include TRACE_INCLUDE(TRACE_INCLUDE_FILE)
@@ -1193,11 +1173,9 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 		.event_notifier = NULL,					      \
 		.interruptible = !irqs_disabled(),			      \
 	};								      \
-	struct lttng_channel *__chan = __event->chan;			      \
-	struct lttng_session *__session = __chan->session;		      \
+	struct lttng_event_container *__container = __event->container;	      \
+	struct lttng_session *__session = __container->session;		      \
 	struct lib_ring_buffer_ctx __ctx;				      \
-	ssize_t __event_len;						      \
-	size_t __event_align;						      \
 	size_t __orig_dynamic_len_offset, __dynamic_len_idx __attribute__((unused)); \
 	union {								      \
 		size_t __dynamic_len_removed[ARRAY_SIZE(__event_fields___##_name)];   \
@@ -1213,7 +1191,7 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 		return;							      \
 	if (unlikely(!LTTNG_READ_ONCE(__session->active)))		      \
 		return;							      \
-	if (unlikely(!LTTNG_READ_ONCE(__chan->enabled)))		      \
+	if (unlikely(!LTTNG_READ_ONCE(__container->enabled)))		      \
 		return;							      \
 	if (unlikely(!LTTNG_READ_ONCE(__event->enabled)))		      \
 		return;							      \
@@ -1258,19 +1236,37 @@ static void __event_probe__##_name(void *__data, _proto)		      \
 		if (likely(!__filter_record))				      \
 			goto __post;					      \
 	}								      \
-	__event_len = __event_get_size__##_name(tp_locvar, _args);	      \
-	if (unlikely(__event_len < 0)) {				      \
-		lib_ring_buffer_lost_event_too_big(__chan->chan);	      \
-		goto __post;						      \
+	switch (__container->type) {					      \
+	case LTTNG_EVENT_CONTAINER_CHANNEL:				      \
+	{								      \
+		struct lttng_channel *__chan = &__container->u.channel;	      \
+		ssize_t __event_len;					      \
+		size_t __event_align;					      \
+									      \
+		__event_len = __event_get_size__##_name(tp_locvar, _args);    \
+		if (unlikely(__event_len < 0)) {			      \
+			lib_ring_buffer_lost_event_too_big(__chan->chan);     \
+			goto __post;					      \
+		}							      \
+		__event_align = __event_get_align__##_name(tp_locvar, _args); \
+		lib_ring_buffer_ctx_init(&__ctx, __chan->chan, &__lttng_probe_ctx, __event_len, \
+					 __event_align, -1);		      \
+		__ret = __chan->ops->event_reserve(&__ctx, __event->id);      \
+		if (__ret < 0)						      \
+			goto __post;					      \
+		_fields							      \
+		__chan->ops->event_commit(&__ctx);			      \
+		break;							      \
 	}								      \
-	__event_align = __event_get_align__##_name(tp_locvar, _args);         \
-	lib_ring_buffer_ctx_init(&__ctx, __chan->chan, &__lttng_probe_ctx, __event_len,  \
-				 __event_align, -1);			      \
-	__ret = __chan->ops->event_reserve(&__ctx, __event->id);	      \
-	if (__ret < 0)							      \
-		goto __post;						      \
-	_fields								      \
-	__chan->ops->event_commit(&__ctx);				      \
+	case LTTNG_EVENT_CONTAINER_COUNTER:				      \
+	{								      \
+		struct lttng_counter *__counter = &__container->u.counter;    \
+		size_t __index = __event->id;				      \
+									      \
+		(void) __counter->ops->counter_add(__counter->counter, &__index, 1); \
+		break;							      \
+	}								      \
+	}								      \
 __post:									      \
 	_code_post							      \
 	barrier();	/* use before un-reserve. */			      \
@@ -1289,11 +1285,8 @@ static void __event_probe__##_name(void *__data)			      \
 		.event_notifier = NULL,					      \
 		.interruptible = !irqs_disabled(),			      \
 	};								      \
-	struct lttng_channel *__chan = __event->chan;			      \
-	struct lttng_session *__session = __chan->session;		      \
-	struct lib_ring_buffer_ctx __ctx;				      \
-	ssize_t __event_len;						      \
-	size_t __event_align;						      \
+	struct lttng_event_container *__container = __event->container;	      \
+	struct lttng_session *__session = __container->session;		      \
 	size_t __orig_dynamic_len_offset, __dynamic_len_idx __attribute__((unused)); \
 	union {								      \
 		size_t __dynamic_len_removed[ARRAY_SIZE(__event_fields___##_name)];   \
@@ -1309,7 +1302,7 @@ static void __event_probe__##_name(void *__data)			      \
 		return;							      \
 	if (unlikely(!LTTNG_READ_ONCE(__session->active)))		      \
 		return;							      \
-	if (unlikely(!LTTNG_READ_ONCE(__chan->enabled)))		      \
+	if (unlikely(!LTTNG_READ_ONCE(__container->enabled)))		      \
 		return;							      \
 	if (unlikely(!LTTNG_READ_ONCE(__event->enabled)))		      \
 		return;							      \
@@ -1338,7 +1331,7 @@ static void __event_probe__##_name(void *__data)			      \
 	__orig_dynamic_len_offset = this_cpu_ptr(&lttng_dynamic_len_stack)->offset; \
 	__dynamic_len_idx = __orig_dynamic_len_offset;			      \
 	_code_pre							      \
-	if (unlikely(!list_empty(&__event->filter_bytecode_runtime_head))) {	      \
+	if (unlikely(!list_empty(&__event->filter_bytecode_runtime_head))) {  \
 		struct lttng_bytecode_runtime *bc_runtime;		      \
 		int __filter_record = __event->has_enablers_without_bytecode; \
 									      \
@@ -1354,19 +1347,38 @@ static void __event_probe__##_name(void *__data)			      \
 		if (likely(!__filter_record))				      \
 			goto __post;					      \
 	}								      \
-	__event_len = __event_get_size__##_name(tp_locvar);		      \
-	if (unlikely(__event_len < 0)) {				      \
-		lib_ring_buffer_lost_event_too_big(__chan->chan);	      \
-		goto __post;						      \
+	switch (__container->type) {					      \
+	case LTTNG_EVENT_CONTAINER_CHANNEL:				      \
+	{								      \
+		struct lttng_channel *__chan = &__container->u.channel;	      \
+		struct lib_ring_buffer_ctx __ctx;			      \
+		ssize_t __event_len;					      \
+		size_t __event_align;					      \
+									      \
+		__event_len = __event_get_size__##_name(tp_locvar);	      \
+		if (unlikely(__event_len < 0)) {			      \
+			lib_ring_buffer_lost_event_too_big(__chan->chan);     \
+			goto __post;					      \
+		}							      \
+		__event_align = __event_get_align__##_name(tp_locvar);	      \
+		lib_ring_buffer_ctx_init(&__ctx, __chan->chan, &__lttng_probe_ctx, __event_len, \
+					 __event_align, -1);		      \
+		__ret = __chan->ops->event_reserve(&__ctx, __event->id);      \
+		if (__ret < 0)						      \
+			goto __post;					      \
+		_fields							      \
+		__chan->ops->event_commit(&__ctx);			      \
+		break;							      \
 	}								      \
-	__event_align = __event_get_align__##_name(tp_locvar);		      \
-	lib_ring_buffer_ctx_init(&__ctx, __chan->chan, &__lttng_probe_ctx, __event_len,  \
-				 __event_align, -1);			      \
-	__ret = __chan->ops->event_reserve(&__ctx, __event->id);	      \
-	if (__ret < 0)							      \
-		goto __post;						      \
-	_fields								      \
-	__chan->ops->event_commit(&__ctx);				      \
+	case LTTNG_EVENT_CONTAINER_COUNTER:				      \
+	{								      \
+		struct lttng_counter *__counter = &__container->u.counter;    \
+		size_t __index = __event->id;				      \
+									      \
+		(void) __counter->ops->counter_add(__counter->counter, &__index, 1); \
+		break;							      \
+	}								      \
+	}								      \
 __post:									      \
 	_code_post							      \
 	barrier();	/* use before un-reserve. */			      \
@@ -1378,8 +1390,9 @@ __post:									      \
 
 #undef __get_dynamic_len
 
+
 /*
- *
+ * Stage 6.1 of tracepoint generation: generate event notifier probes
  */
 
 #include <lttng/events-reset.h>	/* Reset all macros within LTTNG_TRACEPOINT_EVENT */

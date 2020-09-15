@@ -477,6 +477,27 @@ int lttng_counter_clear(const struct lib_counter_config *config,
 }
 EXPORT_SYMBOL_GPL(lttng_counter_clear);
 
+int lttng_counter_get_nr_dimensions(const struct lib_counter_config *config,
+				    struct lib_counter *counter,
+				    size_t *nr_dimensions)
+{
+	*nr_dimensions = counter->nr_dimensions;
+	return 0;
+}
+EXPORT_SYMBOL_GPL(lttng_counter_get_nr_dimensions);
+
+int lttng_counter_get_max_nr_elem(const struct lib_counter_config *config,
+				  struct lib_counter *counter,
+				  size_t *max_nr_elem)	/* array of size nr_dimensions */
+{
+	size_t dimension;
+
+	for (dimension = 0; dimension < counter->nr_dimensions; dimension++)
+		max_nr_elem[dimension] = lttng_counter_get_dimension_nr_elements(&counter->dimensions[dimension]);
+	return 0;
+}
+EXPORT_SYMBOL_GPL(lttng_counter_get_max_nr_elem);
+
 MODULE_LICENSE("GPL and additional rights");
 MODULE_AUTHOR("Mathieu Desnoyers <mathieu.desnoyers@efficios.com>");
 MODULE_DESCRIPTION("LTTng counter library");

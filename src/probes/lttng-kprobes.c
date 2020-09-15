@@ -26,14 +26,15 @@ int lttng_kprobes_event_handler_pre(struct kprobe *p, struct pt_regs *regs)
 		.event = event,
 		.interruptible = !lttng_regs_irqs_disabled(regs),
 	};
-	struct lttng_channel *chan = event->chan;
+	struct lttng_event_container *container = event->container;
+	struct lttng_channel *chan = &container->u.channel;
 	struct lib_ring_buffer_ctx ctx;
 	int ret;
 	unsigned long data = (unsigned long) p->addr;
 
-	if (unlikely(!LTTNG_READ_ONCE(chan->session->active)))
+	if (unlikely(!LTTNG_READ_ONCE(container->session->active)))
 		return 0;
-	if (unlikely(!LTTNG_READ_ONCE(chan->enabled)))
+	if (unlikely(!LTTNG_READ_ONCE(container->enabled)))
 		return 0;
 	if (unlikely(!LTTNG_READ_ONCE(event->enabled)))
 		return 0;
