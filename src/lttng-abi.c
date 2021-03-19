@@ -490,6 +490,7 @@ int lttng_abi_create_channel(struct file *session_file,
 	const struct file_operations *fops = NULL;
 	const char *transport_name;
 	struct lttng_channel *chan;
+	struct lttng_event_container *container;
 	struct file *chan_file;
 	int chan_fd;
 	int ret = 0;
@@ -557,7 +558,8 @@ int lttng_abi_create_channel(struct file *session_file,
 		ret = -EINVAL;
 		goto chan_error;
 	}
-	chan->file = chan_file;
+	container = lttng_channel_get_event_container(chan);
+	container->file = chan_file;
 	chan_file->private_data = chan;
 	fd_install(chan_fd, chan_file);
 
@@ -608,6 +610,139 @@ int lttng_abi_session_set_creation_time(struct lttng_session *session,
 }
 
 static
+int lttng_abi_validate_event_param(struct lttng_kernel_event *event_param)
+{
+	/* Limit ABI to implemented features. */
+	switch (event_param->instrumentation) {
+	case LTTNG_KERNEL_SYSCALL:
+		switch (event_param->u.syscall.entryexit) {
+		case LTTNG_KERNEL_SYSCALL_ENTRY:
+		case LTTNG_KERNEL_SYSCALL_EXIT:
+		case LTTNG_KERNEL_SYSCALL_ENTRYEXIT:
+			break;
+		default:
+			return -EINVAL;
+		}
+		switch (event_param->u.syscall.abi) {
+		case LTTNG_KERNEL_SYSCALL_ABI_ALL:
+			break;
+		default:
+			return -EINVAL;
+		}
+		switch (event_param->u.syscall.match) {
+		case LTTNG_KERNEL_SYSCALL_MATCH_NAME:
+			break;
+		default:
+			return -EINVAL;
+		}
+		break;
+
+	case LTTNG_KERNEL_TRACEPOINT:	/* Fallthrough */
+	case LTTNG_KERNEL_KPROBE:	/* Fallthrough */
+	case LTTNG_KERNEL_KRETPROBE:	/* Fallthrough */
+	case LTTNG_KERNEL_NOOP:		/* Fallthrough */
+	case LTTNG_KERNEL_UPROBE:
+		break;
+
+	case LTTNG_KERNEL_FUNCTION:	/* Fallthrough */
+	default:
+		return -EINVAL;
+	}
+	return 0;
+}
+
+static
+int lttng_abi_create_event(struct file *event_container_file,
+			   struct lttng_event_container *container,
+			   struct lttng_kernel_event *event_param,
+			   const struct lttng_counter_key *key)
+{
+	int event_fd, ret;
+	struct file *event_file;
+	void *priv;
+
+	event_param->name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
+	switch (event_param->instrumentation) {
+	case LTTNG_KERNEL_KRETPROBE:
+		event_param->u.kretprobe.symbol_name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
+		break;
+	case LTTNG_KERNEL_KPROBE:
+		event_param->u.kprobe.symbol_name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
+		break;
+	case LTTNG_KERNEL_FUNCTION:
+		WARN_ON_ONCE(1);
+		/* Not implemented. */
+		break;
+	default:
+		break;
+	}
+	event_fd = lttng_get_unused_fd();
+	if (event_fd < 0) {
+		ret = event_fd;
+		goto fd_error;
+	}
+	event_file = anon_inode_getfile("[lttng_event]",
+					&lttng_event_fops,
+					NULL, O_RDWR);
+	if (IS_ERR(event_file)) {
+		ret = PTR_ERR(event_file);
+		goto file_error;
+	}
+	/* The event holds a reference on the container */
+	if (!atomic_long_add_unless(&event_container_file->f_count, 1, LONG_MAX)) {
+		ret = -EOVERFLOW;
+		goto refcount_error;
+	}
+	ret = lttng_abi_validate_event_param(event_param);
+	if (ret)
+		goto event_error;
+	if (event_param->instrumentation == LTTNG_KERNEL_TRACEPOINT
+			|| event_param->instrumentation == LTTNG_KERNEL_SYSCALL) {
+		struct lttng_event_enabler *event_enabler;
+
+		if (strutils_is_star_glob_pattern(event_param->name)) {
+			/*
+			 * If the event name is a star globbing pattern,
+			 * we create the special star globbing enabler.
+			 */
+			event_enabler = lttng_event_enabler_create(LTTNG_ENABLER_FORMAT_STAR_GLOB,
+				event_param, key, container);
+		} else {
+			event_enabler = lttng_event_enabler_create(LTTNG_ENABLER_FORMAT_NAME,
+				event_param, key, container);
+		}
+		priv = event_enabler;
+	} else {
+		struct lttng_event *event;
+
+		/*
+		 * We tolerate no failure path after event creation. It
+		 * will stay invariant for the rest of the session.
+		 */
+		event = lttng_event_create(container, event_param, key,
+				NULL, NULL,
+				event_param->instrumentation, event_param->token);
+		if (IS_ERR(event)) {
+			ret = PTR_ERR(event);
+			goto event_error;
+		}
+		priv = event;
+	}
+	event_file->private_data = priv;
+	fd_install(event_fd, event_file);
+	return event_fd;
+
+event_error:
+	atomic_long_dec(&event_container_file->f_count);
+refcount_error:
+	fput(event_file);
+file_error:
+	put_unused_fd(event_fd);
+fd_error:
+	return ret;
+}
+
+static
 int lttng_counter_release(struct inode *inode, struct file *file)
 {
 	struct lttng_counter *counter = file->private_data;
@@ -624,9 +759,66 @@ int lttng_counter_release(struct inode *inode, struct file *file)
 }
 
 static
+int copy_counter_key(struct lttng_counter_key *key,
+		     const struct lttng_kernel_counter_key *ukey)
+{
+	size_t i, j, nr_dimensions;
+
+	nr_dimensions = ukey->nr_dimensions;
+	if (nr_dimensions > LTTNG_COUNTER_DIMENSION_MAX)
+		return -EINVAL;
+	key->nr_dimensions = nr_dimensions;
+	for (i = 0; i < nr_dimensions; i++) {
+		const struct lttng_kernel_counter_key_dimension *udim =
+			&ukey->key_dimensions[i];
+		struct lttng_counter_key_dimension *dim =
+			&key->key_dimensions[i];
+		size_t nr_key_tokens;
+
+		nr_key_tokens = udim->nr_key_tokens;
+		if (!nr_key_tokens || nr_key_tokens > LTTNG_NR_KEY_TOKEN)
+			return -EINVAL;
+		dim->nr_key_tokens = nr_key_tokens;
+		for (j = 0; j < nr_key_tokens; j++) {
+			const struct lttng_kernel_key_token *utoken =
+				&udim->key_tokens[j];
+			struct lttng_key_token *token =
+				&dim->key_tokens[j];
+
+			switch (utoken->type) {
+			case LTTNG_KERNEL_KEY_TOKEN_STRING:
+			{
+				long ret;
+
+				token->type = LTTNG_KEY_TOKEN_STRING;
+				ret = strncpy_from_user(token->arg.string,
+					(char __user *)(unsigned long)utoken->arg.string_ptr,
+					LTTNG_KEY_TOKEN_STRING_LEN_MAX);
+				if (ret < 0)
+					return -EFAULT;
+				if (!ret || ret == LTTNG_KEY_TOKEN_STRING_LEN_MAX)
+					return -EINVAL;
+				break;
+			}
+			case LTTNG_KERNEL_KEY_TOKEN_EVENT_NAME:
+				token->type = LTTNG_KEY_TOKEN_EVENT_NAME;
+				break;
+			case LTTNG_KERNEL_KEY_TOKEN_PROVIDER_NAME:
+				printk(KERN_ERR "LTTng: Provider name token not supported.\n");
+				/* Fallthrough */
+			default:
+				return -EINVAL;
+			}
+		}
+	}
+	return 0;
+}
+
+static
 long lttng_counter_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct lttng_counter *counter = file->private_data;
+	struct lttng_event_container *container = lttng_counter_get_event_container(counter);
 	size_t indexes[LTTNG_KERNEL_COUNTER_DIMENSION_MAX] = { 0 };
 	int i;
 
@@ -720,6 +912,89 @@ long lttng_counter_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 
 		return lttng_kernel_counter_clear(counter, indexes);
 	}
+	case LTTNG_KERNEL_COUNTER_EVENT:
+	{
+		struct lttng_kernel_counter_event *ucounter_event_param;
+		struct lttng_counter_key *key;
+		int ret;
+
+		key = kzalloc(sizeof(*key), GFP_KERNEL);
+		if (!key)
+			return -ENOMEM;
+		ucounter_event_param = kzalloc(sizeof(*ucounter_event_param), GFP_KERNEL);
+		if (!ucounter_event_param) {
+			ret = -ENOMEM;
+			goto free_key;
+		}
+		if (copy_from_user(ucounter_event_param,
+				(struct lttng_kernel_counter_event __user *) arg,
+				sizeof(*ucounter_event_param))) {
+			ret = -EFAULT;
+			goto free_param;
+		}
+		ret = copy_counter_key(key, &ucounter_event_param->key);
+		if (ret)
+			goto free_param;
+		ret = lttng_abi_create_event(file, container, &ucounter_event_param->event, key);
+	free_param:
+		kfree(ucounter_event_param);
+	free_key:
+		kfree(key);
+		return ret;
+	}
+	case LTTNG_KERNEL_ENABLE:
+		return lttng_event_container_enable(container);
+	case LTTNG_KERNEL_DISABLE:
+		return lttng_event_container_disable(container);
+	case LTTNG_KERNEL_SYSCALL_MASK:
+		return lttng_event_container_syscall_mask(container,
+			(struct lttng_kernel_syscall_mask __user *) arg);
+	case LTTNG_KERNEL_COUNTER_MAP_NR_DESCRIPTORS:
+	{
+		uint64_t __user *user_nr_descriptors = (uint64_t __user *) arg;
+		uint64_t nr_descriptors;
+
+		mutex_lock(&counter->map.lock);
+		nr_descriptors = counter->map.nr_descriptors;
+		mutex_unlock(&counter->map.lock);
+		return put_user(nr_descriptors, user_nr_descriptors);
+	}
+	case LTTNG_KERNEL_COUNTER_MAP_DESCRIPTOR:
+	{
+		struct lttng_kernel_counter_map_descriptor __user *user_descriptor =
+			(struct lttng_kernel_counter_map_descriptor __user *) arg;
+		struct lttng_kernel_counter_map_descriptor local_descriptor;
+		struct lttng_counter_map_descriptor *kernel_descriptor;
+		int ret;
+
+		if (copy_from_user(&local_descriptor, user_descriptor,
+					sizeof(local_descriptor)))
+			return -EFAULT;
+		if (validate_zeroed_padding(local_descriptor.padding,
+				sizeof(local_descriptor.padding)))
+			return -EINVAL;
+
+		mutex_lock(&counter->map.lock);
+		if (local_descriptor.descriptor_index >= counter->map.nr_descriptors) {
+			ret = -EOVERFLOW;
+			goto map_descriptor_error_unlock;
+		}
+		kernel_descriptor = &counter->map.descriptors[local_descriptor.descriptor_index];
+		local_descriptor.user_token = kernel_descriptor->user_token;
+		local_descriptor.array_index = kernel_descriptor->array_index;
+		memcpy(local_descriptor.key, kernel_descriptor->key, LTTNG_KERNEL_COUNTER_KEY_LEN);
+		mutex_unlock(&counter->map.lock);
+
+		if (copy_to_user(user_descriptor, &local_descriptor,
+					sizeof(local_descriptor)))
+			return -EFAULT;
+
+		return 0;
+
+	map_descriptor_error_unlock:
+		mutex_unlock(&counter->map.lock);
+		return ret;
+	}
 	default:
 		WARN_ON_ONCE(1);
 		return -ENOSYS;
@@ -735,6 +1010,91 @@ static const struct file_operations lttng_counter_fops = {
 #endif
 };
 
+static
+long lttng_abi_session_create_counter(
+		struct lttng_session *session,
+		const struct lttng_kernel_counter_conf *counter_conf)
+{
+	int counter_fd, ret, i;
+	char *counter_transport_name;
+	struct lttng_event_container *container;
+	struct lttng_counter *counter;
+	struct file *counter_file;
+	size_t dimension_sizes[LTTNG_KERNEL_COUNTER_DIMENSION_MAX] = { 0 };
+	size_t number_dimensions;
+
+	counter_fd = lttng_get_unused_fd();
+	if (counter_fd < 0) {
+		ret = counter_fd;
+		goto fd_error;
+	}
+
+	counter_file = anon_inode_getfile("[lttng_counter]",
+				       &lttng_counter_fops,
+				       NULL, O_RDONLY);
+	if (IS_ERR(counter_file)) {
+		ret = PTR_ERR(counter_file);
+		goto file_error;
+	}
+
+	if (counter_conf->arithmetic != LTTNG_KERNEL_COUNTER_ARITHMETIC_MODULAR) {
+		printk(KERN_ERR "LTTng: Map: Error counter of the wrong type.\n");
+		return -EINVAL;
+	}
+
+	switch (counter_conf->bitness) {
+	case LTTNG_KERNEL_COUNTER_BITNESS_64:
+		counter_transport_name = "counter-per-cpu-64-modular";
+		break;
+	case LTTNG_KERNEL_COUNTER_BITNESS_32:
+		counter_transport_name = "counter-per-cpu-32-modular";
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	number_dimensions = (size_t) counter_conf->number_dimensions;
+
+	for (i = 0; i < counter_conf->number_dimensions; i++) {
+		if (counter_conf->dimensions[i].has_underflow)
+			return -EINVAL;
+		if (counter_conf->dimensions[i].has_overflow)
+			return -EINVAL;
+		dimension_sizes[i] = counter_conf->dimensions[i].size;
+	}
+
+	if (!atomic_long_add_unless(&session->file->f_count, 1, LONG_MAX)) {
+		ret = -EOVERFLOW;
+		goto refcount_error;
+	}
+
+	counter = lttng_session_create_counter(session,
+			counter_transport_name,
+			number_dimensions, dimension_sizes,
+			counter_conf->coalesce_hits);
+	if (!counter) {
+		ret = -EINVAL;
+		goto counter_error;
+	}
+
+	counter->owner = session->file;
+	container = lttng_counter_get_event_container(counter);
+	container->file = counter_file;
+	counter_file->private_data = counter;
+
+	fd_install(counter_fd, counter_file);
+
+	return counter_fd;
+
+counter_error:
+	atomic_long_dec(&session->file->f_count);
+refcount_error:
+	fput(counter_file);
+file_error:
+	put_unused_fd(counter_fd);
+fd_error:
+	return ret;
+}
 
 static
 enum tracker_type get_tracker_type(struct lttng_kernel_tracker_args *tracker)
@@ -924,6 +1284,17 @@ long lttng_session_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 				sizeof(struct lttng_kernel_session_creation_time)))
 			return -EFAULT;
 		return lttng_abi_session_set_creation_time(session, &time);
+	}
+	case LTTNG_KERNEL_COUNTER:
+	{
+		struct lttng_kernel_counter_conf ucounter_conf;
+
+		if (copy_from_user(&ucounter_conf,
+				(struct lttng_kernel_counter_conf __user *) arg,
+				sizeof(ucounter_conf)))
+			return -EFAULT;
+		return lttng_abi_session_create_counter(session,
+				&ucounter_conf);
 	}
 	default:
 		return -ENOIOCTLCMD;
@@ -1555,7 +1926,7 @@ const struct file_operations lttng_metadata_ring_buffer_file_operations = {
 };
 
 static
-int lttng_abi_create_stream_fd(struct file *channel_file, void *stream_priv,
+int lttng_abi_create_stream_fd(struct file *file, void *stream_priv,
 		const struct file_operations *fops, const char *name)
 {
 	int stream_fd, ret;
@@ -1592,9 +1963,9 @@ fd_error:
 }
 
 static
-int lttng_abi_open_stream(struct file *channel_file)
+int lttng_abi_open_stream(struct file *file)
 {
-	struct lttng_channel *channel = channel_file->private_data;
+	struct lttng_channel *channel = file->private_data;
 	struct lib_ring_buffer *buf;
 	int ret;
 	void *stream_priv;
@@ -1604,7 +1975,7 @@ int lttng_abi_open_stream(struct file *channel_file)
 		return -ENOENT;
 
 	stream_priv = buf;
-	ret = lttng_abi_create_stream_fd(channel_file, stream_priv,
+	ret = lttng_abi_create_stream_fd(file, stream_priv,
 			&lttng_stream_ring_buffer_file_operations,
 			"[lttng_stream]");
 	if (ret < 0)
@@ -1618,10 +1989,11 @@ fd_error:
 }
 
 static
-int lttng_abi_open_metadata_stream(struct file *channel_file)
+int lttng_abi_open_metadata_stream(struct file *file)
 {
-	struct lttng_channel *channel = channel_file->private_data;
-	struct lttng_session *session = channel->session;
+	struct lttng_channel *channel = file->private_data;
+	struct lttng_event_container *container = lttng_channel_get_event_container(channel);
+	struct lttng_session *session = container->session;
 	struct lib_ring_buffer *buf;
 	int ret;
 	struct lttng_metadata_stream *metadata_stream;
@@ -1660,7 +2032,7 @@ int lttng_abi_open_metadata_stream(struct file *channel_file)
 		goto kref_error;
 	}
 
-	ret = lttng_abi_create_stream_fd(channel_file, stream_priv,
+	ret = lttng_abi_create_stream_fd(file, stream_priv,
 			&lttng_metadata_ring_buffer_file_operations,
 			"[lttng_metadata_stream]");
 	if (ret < 0)
@@ -1715,139 +2087,6 @@ fd_error:
 	atomic_long_dec(&notif_file->f_count);
 refcount_error:
 	event_notifier_group->ops->buffer_read_close(buf);
-	return ret;
-}
-
-static
-int lttng_abi_validate_event_param(struct lttng_kernel_event *event_param)
-{
-	/* Limit ABI to implemented features. */
-	switch (event_param->instrumentation) {
-	case LTTNG_KERNEL_SYSCALL:
-		switch (event_param->u.syscall.entryexit) {
-		case LTTNG_KERNEL_SYSCALL_ENTRY:
-		case LTTNG_KERNEL_SYSCALL_EXIT:
-		case LTTNG_KERNEL_SYSCALL_ENTRYEXIT:
-			break;
-		default:
-			return -EINVAL;
-		}
-		switch (event_param->u.syscall.abi) {
-		case LTTNG_KERNEL_SYSCALL_ABI_ALL:
-			break;
-		default:
-			return -EINVAL;
-		}
-		switch (event_param->u.syscall.match) {
-		case LTTNG_KERNEL_SYSCALL_MATCH_NAME:
-			break;
-		default:
-			return -EINVAL;
-		}
-		break;
-
-	case LTTNG_KERNEL_TRACEPOINT:	/* Fallthrough */
-	case LTTNG_KERNEL_KPROBE:	/* Fallthrough */
-	case LTTNG_KERNEL_KRETPROBE:	/* Fallthrough */
-	case LTTNG_KERNEL_NOOP:		/* Fallthrough */
-	case LTTNG_KERNEL_UPROBE:
-		break;
-
-	case LTTNG_KERNEL_FUNCTION:	/* Fallthrough */
-	default:
-		return -EINVAL;
-	}
-	return 0;
-}
-
-static
-int lttng_abi_create_event(struct file *channel_file,
-			   struct lttng_kernel_event *event_param)
-{
-	struct lttng_channel *channel = channel_file->private_data;
-	int event_fd, ret;
-	struct file *event_file;
-	void *priv;
-
-	event_param->name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
-	switch (event_param->instrumentation) {
-	case LTTNG_KERNEL_KRETPROBE:
-		event_param->u.kretprobe.symbol_name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
-		break;
-	case LTTNG_KERNEL_KPROBE:
-		event_param->u.kprobe.symbol_name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
-		break;
-	case LTTNG_KERNEL_FUNCTION:
-		WARN_ON_ONCE(1);
-		/* Not implemented. */
-		break;
-	default:
-		break;
-	}
-	event_fd = lttng_get_unused_fd();
-	if (event_fd < 0) {
-		ret = event_fd;
-		goto fd_error;
-	}
-	event_file = anon_inode_getfile("[lttng_event]",
-					&lttng_event_fops,
-					NULL, O_RDWR);
-	if (IS_ERR(event_file)) {
-		ret = PTR_ERR(event_file);
-		goto file_error;
-	}
-	/* The event holds a reference on the channel */
-	if (!atomic_long_add_unless(&channel_file->f_count, 1, LONG_MAX)) {
-		ret = -EOVERFLOW;
-		goto refcount_error;
-	}
-	ret = lttng_abi_validate_event_param(event_param);
-	if (ret)
-		goto event_error;
-	if (event_param->instrumentation == LTTNG_KERNEL_TRACEPOINT
-			|| event_param->instrumentation == LTTNG_KERNEL_SYSCALL) {
-		struct lttng_event_enabler *event_enabler;
-
-		if (strutils_is_star_glob_pattern(event_param->name)) {
-			/*
-			 * If the event name is a star globbing pattern,
-			 * we create the special star globbing enabler.
-			 */
-			event_enabler = lttng_event_enabler_create(LTTNG_ENABLER_FORMAT_STAR_GLOB,
-				event_param, channel);
-		} else {
-			event_enabler = lttng_event_enabler_create(LTTNG_ENABLER_FORMAT_NAME,
-				event_param, channel);
-		}
-		priv = event_enabler;
-	} else {
-		struct lttng_event *event;
-
-		/*
-		 * We tolerate no failure path after event creation. It
-		 * will stay invariant for the rest of the session.
-		 */
-		event = lttng_event_create(channel, event_param,
-				NULL, NULL,
-				event_param->instrumentation);
-		WARN_ON_ONCE(!event);
-		if (IS_ERR(event)) {
-			ret = PTR_ERR(event);
-			goto event_error;
-		}
-		priv = event;
-	}
-	event_file->private_data = priv;
-	fd_install(event_fd, event_file);
-	return event_fd;
-
-event_error:
-	atomic_long_dec(&channel_file->f_count);
-refcount_error:
-	fput(event_file);
-file_error:
-	put_unused_fd(event_fd);
-fd_error:
 	return ret;
 }
 
@@ -2078,7 +2317,8 @@ long lttng_abi_event_notifier_group_create_error_counter(
 	int counter_fd, ret;
 	char *counter_transport_name;
 	size_t counter_len;
-	struct lttng_counter *counter = NULL;
+	struct lttng_counter *counter;
+	struct lttng_event_container *container;
 	struct file *counter_file;
 	struct lttng_event_notifier_group *event_notifier_group =
 			(struct lttng_event_notifier_group *) event_notifier_group_file->private_data;
@@ -2104,19 +2344,6 @@ long lttng_abi_event_notifier_group_create_error_counter(
 		return -EINVAL;
 	}
 
-	/*
-	 * Lock sessions to provide mutual exclusion against concurrent
-	 * modification of event_notifier group, which would result in
-	 * overwriting the error counter if set concurrently.
-	 */
-	lttng_lock_sessions();
-
-	if (event_notifier_group->error_counter) {
-		printk(KERN_ERR "Error counter already created in event_notifier group\n");
-		ret = -EBUSY;
-		goto fd_error;
-	}
-
 	counter_fd = lttng_get_unused_fd();
 	if (counter_fd < 0) {
 		ret = counter_fd;
@@ -2138,29 +2365,18 @@ long lttng_abi_event_notifier_group_create_error_counter(
 		goto refcount_error;
 	}
 
-	counter = lttng_kernel_counter_create(counter_transport_name,
-			1, &counter_len);
-	if (!counter) {
-		ret = -EINVAL;
+	ret = lttng_event_notifier_group_set_error_counter(event_notifier_group,
+			counter_transport_name, counter_len);
+	if (ret)
 		goto counter_error;
-	}
 
-	event_notifier_group->error_counter_len = counter_len;
-	/*
-	 * store-release to publish error counter matches load-acquire
-	 * in record_error. Ensures the counter is created and the
-	 * error_counter_len is set before they are used.
-	 */
-	lttng_smp_store_release(&event_notifier_group->error_counter, counter);
-
-	counter->file = counter_file;
+	counter = event_notifier_group->error_counter;
+	container = lttng_counter_get_event_container(counter);
+	container->file = counter_file;
 	counter->owner = event_notifier_group->file;
 	counter_file->private_data = counter;
-	/* Ownership transferred. */
-	counter = NULL;
 
 	fd_install(counter_fd, counter_file);
-	lttng_unlock_sessions();
 
 	return counter_fd;
 
@@ -2171,7 +2387,6 @@ refcount_error:
 file_error:
 	put_unused_fd(counter_fd);
 fd_error:
-	lttng_unlock_sessions();
 	return ret;
 }
 
@@ -2257,6 +2472,7 @@ static
 long lttng_channel_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 	struct lttng_channel *channel = file->private_data;
+	struct lttng_event_container *container = lttng_channel_get_event_container(channel);
 
 	switch (cmd) {
 	case LTTNG_KERNEL_OLD_STREAM:
@@ -2319,7 +2535,7 @@ long lttng_channel_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 		default:
 			break;
 		}
-		ret = lttng_abi_create_event(file, uevent_param);
+		ret = lttng_abi_create_event(file, container, uevent_param, NULL);
 
 old_event_error_free_old_param:
 		kfree(old_uevent_param);
@@ -2336,7 +2552,7 @@ old_event_end:
 				(struct lttng_kernel_event __user *) arg,
 				sizeof(uevent_param)))
 			return -EFAULT;
-		return lttng_abi_create_event(file, &uevent_param);
+		return lttng_abi_create_event(file, container, &uevent_param, NULL);
 	}
 	case LTTNG_KERNEL_OLD_CONTEXT:
 	{
@@ -2379,7 +2595,7 @@ old_event_end:
 
 		ret = lttng_abi_add_context(file,
 				ucontext_param,
-				&channel->ctx, channel->session);
+				&channel->ctx, container->session);
 
 old_ctx_error_free_old_param:
 		kfree(old_ucontext_param);
@@ -2398,16 +2614,16 @@ old_ctx_end:
 			return -EFAULT;
 		return lttng_abi_add_context(file,
 				&ucontext_param,
-				&channel->ctx, channel->session);
+				&channel->ctx, container->session);
 	}
 	case LTTNG_KERNEL_OLD_ENABLE:
 	case LTTNG_KERNEL_ENABLE:
-		return lttng_channel_enable(channel);
+		return lttng_event_container_enable(container);
 	case LTTNG_KERNEL_OLD_DISABLE:
 	case LTTNG_KERNEL_DISABLE:
-		return lttng_channel_disable(channel);
+		return lttng_event_container_disable(container);
 	case LTTNG_KERNEL_SYSCALL_MASK:
-		return lttng_channel_syscall_mask(channel,
+		return lttng_event_container_syscall_mask(container,
 			(struct lttng_kernel_syscall_mask __user *) arg);
 	default:
 		return -ENOIOCTLCMD;
@@ -2470,21 +2686,26 @@ unsigned int lttng_channel_poll(struct file *file, poll_table *wait)
 static
 int lttng_channel_release(struct inode *inode, struct file *file)
 {
-	struct lttng_channel *channel = file->private_data;
+	struct lttng_channel *chan = file->private_data;
 
-	if (channel)
-		fput(channel->session->file);
+	if (chan) {
+		struct lttng_event_container *container = lttng_channel_get_event_container(chan);
+
+		fput(container->session->file);
+	}
 	return 0;
 }
 
 static
 int lttng_metadata_channel_release(struct inode *inode, struct file *file)
 {
-	struct lttng_channel *channel = file->private_data;
+	struct lttng_channel *chan = file->private_data;
 
-	if (channel) {
-		fput(channel->session->file);
-		lttng_metadata_channel_destroy(channel);
+	if (chan) {
+		struct lttng_event_container *container = lttng_channel_get_event_container(chan);
+
+		fput(container->session->file);
+		lttng_metadata_channel_destroy(chan);
 	}
 
 	return 0;
@@ -2614,12 +2835,12 @@ int lttng_event_release(struct inode *inode, struct file *file)
 	case LTTNG_TYPE_EVENT:
 		event = file->private_data;
 		if (event)
-			fput(event->chan->file);
+			fput(event->container->file);
 		break;
 	case LTTNG_TYPE_ENABLER:
 		event_enabler = file->private_data;
 		if (event_enabler)
-			fput(event_enabler->chan->file);
+			fput(event_enabler->container->file);
 		break;
 	default:
 		WARN_ON_ONCE(1);

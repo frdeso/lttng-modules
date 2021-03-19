@@ -147,6 +147,46 @@ struct lttng_kernel_event_notifier {
 } __attribute__((packed));
 
 #define LTTNG_KERNEL_COUNTER_DIMENSION_MAX	4
+#define LTTNG_KERNEL_EVENT_NOTIFIER_NOTIFICATION_PADDING 32
+struct lttng_kernel_event_notifier_notification {
+	uint64_t token;
+	uint16_t capture_buf_size;
+	char padding[LTTNG_KERNEL_EVENT_NOTIFIER_NOTIFICATION_PADDING];
+} __attribute__((packed));
+
+enum lttng_kernel_key_token_type {
+	LTTNG_KERNEL_KEY_TOKEN_STRING = 0,	/* arg: string_ptr. */
+	LTTNG_KERNEL_KEY_TOKEN_EVENT_NAME = 1,	/* no arg. */
+	LTTNG_KERNEL_KEY_TOKEN_PROVIDER_NAME = 2,	/* no arg. */
+};
+
+#define LTTNG_KERNEL_KEY_ARG_PADDING1		60
+#define LTTNG_KERNEL_KEY_TOKEN_STRING_LEN_MAX	256
+struct lttng_kernel_key_token {
+	uint32_t type;	/* enum lttng_kernel_key_token_type */
+	union {
+		uint64_t string_ptr;
+		char padding[LTTNG_KERNEL_KEY_ARG_PADDING1];
+	} arg;
+} __attribute__((packed));
+
+#define LTTNG_KERNEL_NR_KEY_TOKEN 4
+struct lttng_kernel_counter_key_dimension {
+	uint32_t nr_key_tokens;
+	struct lttng_kernel_key_token key_tokens[LTTNG_KERNEL_NR_KEY_TOKEN];
+} __attribute__((packed));
+
+struct lttng_kernel_counter_key {
+	uint32_t nr_dimensions;
+	struct lttng_kernel_counter_key_dimension key_dimensions[LTTNG_KERNEL_COUNTER_DIMENSION_MAX];
+} __attribute__((packed));
+
+#define LTTNG_KERNEL_COUNTER_EVENT_PADDING1	16
+struct lttng_kernel_counter_event {
+	struct lttng_kernel_event event;
+	struct lttng_kernel_counter_key key;
+	char padding[LTTNG_KERNEL_COUNTER_EVENT_PADDING1];
+} __attribute__((packed));
 
 enum lttng_kernel_counter_arithmetic {
 	LTTNG_KERNEL_COUNTER_ARITHMETIC_MODULAR = 0,
@@ -208,11 +248,17 @@ struct lttng_kernel_counter_clear {
 	char padding[LTTNG_KERNEL_COUNTER_CLEAR_PADDING];
 } __attribute__((packed));
 
-#define LTTNG_KERNEL_EVENT_NOTIFIER_NOTIFICATION_PADDING 32
-struct lttng_kernel_event_notifier_notification {
-	uint64_t token;
-	uint16_t capture_buf_size;
-	char padding[LTTNG_KERNEL_EVENT_NOTIFIER_NOTIFICATION_PADDING];
+#define LTTNG_KERNEL_COUNTER_KEY_LEN 256
+#define LTTNG_KERNEL_COUNTER_MAP_DESCRIPTOR_PADDING 32
+struct lttng_kernel_counter_map_descriptor {
+	uint64_t descriptor_index;	/* input. [ 0 .. nr_descriptors - 1 ] */
+
+	uint32_t dimension;		/* outputs */
+	uint64_t array_index;
+	uint64_t user_token;
+	char key[LTTNG_KERNEL_COUNTER_KEY_LEN];
+
+	char padding[LTTNG_KERNEL_COUNTER_MAP_DESCRIPTOR_PADDING];
 } __attribute__((packed));
 
 struct lttng_kernel_tracer_version {
@@ -385,6 +431,7 @@ struct lttng_kernel_tracker_args {
 #define LTTNG_KERNEL_STREAM			_IO(0xF6, 0x62)
 #define LTTNG_KERNEL_EVENT			\
 	_IOW(0xF6, 0x63, struct lttng_kernel_event)
+/* LTTNG_KERNEL_SYSCALL_MASK applies to both channel and counter fds. */
 #define LTTNG_KERNEL_SYSCALL_MASK		\
 	_IOWR(0xF6, 0x64, struct lttng_kernel_syscall_mask)
 
@@ -430,7 +477,12 @@ struct lttng_kernel_tracker_args {
 	_IOWR(0xF6, 0xC1, struct lttng_kernel_counter_aggregate)
 #define LTTNG_KERNEL_COUNTER_CLEAR \
 	_IOW(0xF6, 0xC2, struct lttng_kernel_counter_clear)
-
+#define LTTNG_KERNEL_COUNTER_MAP_NR_DESCRIPTORS \
+	_IOR(0xF6, 0xC3, uint64_t)
+#define LTTNG_KERNEL_COUNTER_MAP_DESCRIPTOR \
+	_IOWR(0xF6, 0xC4, struct lttng_kernel_counter_map_descriptor)
+#define LTTNG_KERNEL_COUNTER_EVENT \
+	_IOW(0xF6, 0xC5, struct lttng_kernel_counter_event)
 
 /*
  * LTTng-specific ioctls for the lib ringbuffer.

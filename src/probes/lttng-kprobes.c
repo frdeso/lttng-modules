@@ -26,26 +26,42 @@ int lttng_kprobes_event_handler_pre(struct kprobe *p, struct pt_regs *regs)
 		.event = event,
 		.interruptible = !lttng_regs_irqs_disabled(regs),
 	};
-	struct lttng_channel *chan = event->chan;
-	struct lib_ring_buffer_ctx ctx;
+	struct lttng_event_container *container = event->container;
 	int ret;
 	unsigned long data = (unsigned long) p->addr;
 
-	if (unlikely(!LTTNG_READ_ONCE(chan->session->active)))
+	if (unlikely(!LTTNG_READ_ONCE(container->session->active)))
 		return 0;
-	if (unlikely(!LTTNG_READ_ONCE(chan->enabled)))
+	if (unlikely(!LTTNG_READ_ONCE(container->enabled)))
 		return 0;
 	if (unlikely(!LTTNG_READ_ONCE(event->enabled)))
 		return 0;
 
-	lib_ring_buffer_ctx_init(&ctx, chan->chan, &lttng_probe_ctx, sizeof(data),
-				 lttng_alignof(data), -1);
-	ret = chan->ops->event_reserve(&ctx, event->id);
-	if (ret < 0)
-		return 0;
-	lib_ring_buffer_align_ctx(&ctx, lttng_alignof(data));
-	chan->ops->event_write(&ctx, &data, sizeof(data));
-	chan->ops->event_commit(&ctx);
+	switch (container->type) {
+	case LTTNG_EVENT_CONTAINER_CHANNEL:
+	{
+		struct lttng_channel *chan = lttng_event_container_get_channel(container);
+		struct lib_ring_buffer_ctx ctx;
+
+		lib_ring_buffer_ctx_init(&ctx, chan->chan, &lttng_probe_ctx, sizeof(data),
+					 lttng_alignof(data), -1);
+		ret = chan->ops->event_reserve(&ctx, event->id);
+		if (ret < 0)
+			return 0;
+		lib_ring_buffer_align_ctx(&ctx, lttng_alignof(data));
+		chan->ops->event_write(&ctx, &data, sizeof(data));
+		chan->ops->event_commit(&ctx);
+		break;
+	}
+	case LTTNG_EVENT_CONTAINER_COUNTER:
+	{
+		struct lttng_counter *counter = lttng_event_container_get_counter(container);
+		size_t index = event->id;
+
+		(void) counter->ops->counter_add(counter->counter, &index, 1);
+		break;
+	}
+	}
 	return 0;
 }
 
@@ -54,11 +70,13 @@ int lttng_kprobes_event_notifier_handler_pre(struct kprobe *p, struct pt_regs *r
 {
 	struct lttng_event_notifier *event_notifier =
 		container_of(p, struct lttng_event_notifier, u.kprobe.kp);
+	struct lttng_kernel_notifier_ctx notif_ctx;
 
 	if (unlikely(!READ_ONCE(event_notifier->enabled)))
 		return 0;
 
-	event_notifier->send_notification(event_notifier, NULL, NULL);
+	notif_ctx.eval_capture = LTTNG_READ_ONCE(event_notifier->eval_capture);
+	event_notifier->send_notification(event_notifier, NULL, NULL, &notif_ctx);
 
 	return 0;
 }

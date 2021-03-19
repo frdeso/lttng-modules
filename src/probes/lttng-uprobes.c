@@ -32,34 +32,50 @@ int lttng_uprobes_event_handler_pre(struct uprobe_consumer *uc, struct pt_regs *
 		.event = event,
 		.interruptible = !lttng_regs_irqs_disabled(regs),
 	};
-	struct lttng_channel *chan = event->chan;
-	struct lib_ring_buffer_ctx ctx;
+	struct lttng_event_container *container = event->container;
 	int ret;
 
 	struct {
 		unsigned long ip;
 	} payload;
 
-	if (unlikely(!LTTNG_READ_ONCE(chan->session->active)))
+	if (unlikely(!LTTNG_READ_ONCE(container->session->active)))
 		return 0;
-	if (unlikely(!LTTNG_READ_ONCE(chan->enabled)))
+	if (unlikely(!LTTNG_READ_ONCE(container->enabled)))
 		return 0;
 	if (unlikely(!LTTNG_READ_ONCE(event->enabled)))
 		return 0;
 
-	lib_ring_buffer_ctx_init(&ctx, chan->chan, &lttng_probe_ctx,
-		sizeof(payload), lttng_alignof(payload), -1);
+	switch (container->type) {
+	case LTTNG_EVENT_CONTAINER_CHANNEL:
+	{
+		struct lttng_channel *chan = lttng_event_container_get_channel(container);
+		struct lib_ring_buffer_ctx ctx;
 
-	ret = chan->ops->event_reserve(&ctx, event->id);
-	if (ret < 0)
-		return 0;
+		lib_ring_buffer_ctx_init(&ctx, chan->chan, &lttng_probe_ctx,
+			sizeof(payload), lttng_alignof(payload), -1);
 
-	/* Event payload. */
-	payload.ip = (unsigned long)instruction_pointer(regs);
+		ret = chan->ops->event_reserve(&ctx, event->id);
+		if (ret < 0)
+			return 0;
 
-	lib_ring_buffer_align_ctx(&ctx, lttng_alignof(payload));
-	chan->ops->event_write(&ctx, &payload, sizeof(payload));
-	chan->ops->event_commit(&ctx);
+		/* Event payload. */
+		payload.ip = (unsigned long)instruction_pointer(regs);
+
+		lib_ring_buffer_align_ctx(&ctx, lttng_alignof(payload));
+		chan->ops->event_write(&ctx, &payload, sizeof(payload));
+		chan->ops->event_commit(&ctx);
+		break;
+	}
+	case LTTNG_EVENT_CONTAINER_COUNTER:
+	{
+		struct lttng_counter *counter = lttng_event_container_get_counter(container);
+		size_t index = event->id;
+
+		(void) counter->ops->counter_add(counter->counter, &index, 1);
+		break;
+	}
+	}
 	return 0;
 }
 
@@ -69,11 +85,13 @@ int lttng_uprobes_event_notifier_handler_pre(struct uprobe_consumer *uc, struct 
 	struct lttng_uprobe_handler *uprobe_handler =
 		container_of(uc, struct lttng_uprobe_handler, up_consumer);
 	struct lttng_event_notifier *event_notifier = uprobe_handler->u.event_notifier;
+	struct lttng_kernel_notifier_ctx notif_ctx;
 
 	if (unlikely(!READ_ONCE(event_notifier->enabled)))
 		return 0;
 
-	event_notifier->send_notification(event_notifier, NULL, NULL);
+	notif_ctx.eval_capture = LTTNG_READ_ONCE(event_notifier->eval_capture);
+	event_notifier->send_notification(event_notifier, NULL, NULL, &notif_ctx);
 	return 0;
 }
 

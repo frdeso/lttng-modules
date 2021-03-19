@@ -639,33 +639,33 @@ void syscall_entry_event_notifier_call_func(struct hlist_head *dispatch_list,
 
 void syscall_entry_event_probe(void *__data, struct pt_regs *regs, long id)
 {
-	struct lttng_channel *chan = __data;
+	struct lttng_event_container *container = __data;
 	struct hlist_head *action_list, *unknown_action_list;
 	const struct trace_syscall_entry *table, *entry;
 	size_t table_len;
 
 	if (unlikely(in_compat_syscall())) {
-		struct lttng_syscall_filter *filter = chan->sc_filter;
+		struct lttng_syscall_filter *filter = container->sc_filter;
 
 		if (id < 0 || id >= NR_compat_syscalls
-			|| (!READ_ONCE(chan->syscall_all_entry) && !test_bit(id, filter->sc_compat_entry))) {
+			|| (!READ_ONCE(container->syscall_all_entry) && !test_bit(id, filter->sc_compat_entry))) {
 			/* System call filtered out. */
 			return;
 		}
 		table = compat_sc_table;
 		table_len = ARRAY_SIZE(compat_sc_table);
-		unknown_action_list = &chan->sc_compat_unknown;
+		unknown_action_list = &container->sc_compat_unknown;
 	} else {
-		struct lttng_syscall_filter *filter = chan->sc_filter;
+		struct lttng_syscall_filter *filter = container->sc_filter;
 
 		if (id < 0 || id >= NR_syscalls
-			|| (!READ_ONCE(chan->syscall_all_entry) && !test_bit(id, filter->sc_entry))) {
+			|| (!READ_ONCE(container->syscall_all_entry) && !test_bit(id, filter->sc_entry))) {
 			/* System call filtered out. */
 			return;
 		}
 		table = sc_table;
 		table_len = ARRAY_SIZE(sc_table);
-		unknown_action_list = &chan->sc_unknown;
+		unknown_action_list = &container->sc_unknown;
 	}
 	if (unlikely(id < 0 || id >= table_len)) {
 		syscall_entry_event_unknown(unknown_action_list, regs, id);
@@ -679,9 +679,9 @@ void syscall_entry_event_probe(void *__data, struct pt_regs *regs, long id)
 	}
 
 	if (unlikely(in_compat_syscall())) {
-		action_list = &chan->compat_sc_table[id];
+		action_list = &container->compat_sc_table[id];
 	} else {
-		action_list = &chan->sc_table[id];
+		action_list = &container->sc_table[id];
 	}
 	if (unlikely(hlist_empty(action_list)))
 		return;
@@ -875,7 +875,7 @@ void syscall_exit_call_func(struct hlist_head *action_list,
 
 void syscall_exit_event_probe(void *__data, struct pt_regs *regs, long ret)
 {
-	struct lttng_channel *chan = __data;
+	struct lttng_event_container *container = __data;
 	struct hlist_head *action_list, *unknown_action_list;
 	const struct trace_syscall_entry *table, *entry;
 	size_t table_len;
@@ -884,27 +884,27 @@ void syscall_exit_event_probe(void *__data, struct pt_regs *regs, long ret)
 	id = syscall_get_nr(current, regs);
 
 	if (unlikely(in_compat_syscall())) {
-		struct lttng_syscall_filter *filter = chan->sc_filter;
+		struct lttng_syscall_filter *filter = container->sc_filter;
 
 		if (id < 0 || id >= NR_compat_syscalls
-			|| (!READ_ONCE(chan->syscall_all_exit) && !test_bit(id, filter->sc_compat_exit))) {
+			|| (!READ_ONCE(container->syscall_all_exit) && !test_bit(id, filter->sc_compat_exit))) {
 			/* System call filtered out. */
 			return;
 		}
 		table = compat_sc_exit_table;
 		table_len = ARRAY_SIZE(compat_sc_exit_table);
-		unknown_action_list = &chan->compat_sc_exit_unknown;
+		unknown_action_list = &container->compat_sc_exit_unknown;
 	} else {
-		struct lttng_syscall_filter *filter = chan->sc_filter;
+		struct lttng_syscall_filter *filter = container->sc_filter;
 
 		if (id < 0 || id >= NR_syscalls
-			|| (!READ_ONCE(chan->syscall_all_exit) && !test_bit(id, filter->sc_exit))) {
+			|| (!READ_ONCE(container->syscall_all_exit) && !test_bit(id, filter->sc_exit))) {
 			/* System call filtered out. */
 			return;
 		}
 		table = sc_exit_table;
 		table_len = ARRAY_SIZE(sc_exit_table);
-		unknown_action_list = &chan->sc_exit_unknown;
+		unknown_action_list = &container->sc_exit_unknown;
 	}
 	if (unlikely(id < 0 || id >= table_len)) {
 		syscall_exit_event_unknown(unknown_action_list, regs, id, ret);
@@ -918,9 +918,9 @@ void syscall_exit_event_probe(void *__data, struct pt_regs *regs, long ret)
 	}
 
 	if (unlikely(in_compat_syscall())) {
-		action_list = &chan->compat_sc_exit_table[id];
+		action_list = &container->compat_sc_exit_table[id];
 	} else {
-		action_list = &chan->sc_exit_table[id];
+		action_list = &container->sc_exit_table[id];
 	}
 	if (unlikely(hlist_empty(action_list)))
 		return;
@@ -1102,11 +1102,10 @@ void syscall_exit_event_notifier_probe(void *__data, struct pt_regs *regs,
  */
 static
 int lttng_create_syscall_event_if_missing(const struct trace_syscall_entry *table, size_t table_len,
-	struct hlist_head *chan_table, struct lttng_event_enabler *event_enabler,
+	struct hlist_head *container_table, struct lttng_event_enabler *event_enabler,
 	void *filter, enum sc_type type)
 {
-	struct lttng_channel *chan = event_enabler->chan;
-	struct lttng_session *session = chan->session;
+	struct lttng_event_container *container = event_enabler->container;
 	unsigned int i;
 
 	/* Allocate events for each syscall matching enabler, insert into table */
@@ -1114,8 +1113,6 @@ int lttng_create_syscall_event_if_missing(const struct trace_syscall_entry *tabl
 		const struct lttng_event_desc *desc = table[i].desc;
 		struct lttng_kernel_event ev;
 		struct lttng_event *event;
-		struct hlist_head *head;
-		bool found = false;
 
 		if (!desc) {
 			/* Unknown syscall */
@@ -1123,19 +1120,6 @@ int lttng_create_syscall_event_if_missing(const struct trace_syscall_entry *tabl
 		}
 		if (lttng_desc_match_enabler(desc,
 				lttng_event_enabler_as_enabler(event_enabler)) <= 0)
-			continue;
-		/*
-		 * Check if already created.
-		 */
-		head = utils_borrow_hash_table_bucket(
-			session->events_ht.table, LTTNG_EVENT_HT_SIZE,
-			desc->name);
-		lttng_hlist_for_each_entry(event, head, hlist) {
-			if (event->desc == desc
-				&& event->chan == event_enabler->chan)
-				found = true;
-		}
-		if (found)
 			continue;
 
 		/* We need to create an event for this syscall/enabler. */
@@ -1161,9 +1145,12 @@ int lttng_create_syscall_event_if_missing(const struct trace_syscall_entry *tabl
 		strncpy(ev.name, desc->name, LTTNG_KERNEL_SYM_NAME_LEN - 1);
 		ev.name[LTTNG_KERNEL_SYM_NAME_LEN - 1] = '\0';
 		ev.instrumentation = LTTNG_KERNEL_SYSCALL;
-		event = _lttng_event_create(chan, &ev, filter,
-					    desc, ev.instrumentation);
-		WARN_ON_ONCE(!event);
+		event = _lttng_event_create(container, &ev, &event_enabler->key, filter,
+				desc, ev.instrumentation,
+				event_enabler->base.user_token);
+		/* Skip if event is already found. */
+		if (IS_ERR(event) && PTR_ERR(event) == -EEXIST)
+			continue;
 		if (IS_ERR(event)) {
 			/*
 			 * If something goes wrong in event registration
@@ -1173,7 +1160,7 @@ int lttng_create_syscall_event_if_missing(const struct trace_syscall_entry *tabl
 			 */
 			return PTR_ERR(event);
 		}
-		hlist_add_head(&event->u.syscall.node, &chan_table[i]);
+		hlist_add_head(&event->u.syscall.node, &container_table[i]);
 	}
 	return 0;
 }
@@ -1183,46 +1170,46 @@ int lttng_create_syscall_event_if_missing(const struct trace_syscall_entry *tabl
  */
 int lttng_syscalls_register_event(struct lttng_event_enabler *event_enabler, void *filter)
 {
-	struct lttng_channel *chan = event_enabler->chan;
+	struct lttng_event_container *container = event_enabler->container;
 	struct lttng_kernel_event ev;
 	int ret;
 
 	wrapper_vmalloc_sync_mappings();
 
-	if (!chan->sc_table) {
+	if (!container->sc_table) {
 		/* create syscall table mapping syscall to events */
-		chan->sc_table = kzalloc(sizeof(struct lttng_event *)
+		container->sc_table = kzalloc(sizeof(struct hlist_head)
 					* ARRAY_SIZE(sc_table), GFP_KERNEL);
-		if (!chan->sc_table)
+		if (!container->sc_table)
 			return -ENOMEM;
 	}
-	if (!chan->sc_exit_table) {
+	if (!container->sc_exit_table) {
 		/* create syscall table mapping syscall to events */
-		chan->sc_exit_table = kzalloc(sizeof(struct lttng_event *)
+		container->sc_exit_table = kzalloc(sizeof(struct hlist_head)
 					* ARRAY_SIZE(sc_exit_table), GFP_KERNEL);
-		if (!chan->sc_exit_table)
+		if (!container->sc_exit_table)
 			return -ENOMEM;
 	}
-
 
 #ifdef CONFIG_COMPAT
-	if (!chan->compat_sc_table) {
+	if (!container->compat_sc_table) {
 		/* create syscall table mapping compat syscall to events */
-		chan->compat_sc_table = kzalloc(sizeof(struct lttng_event *)
+		container->compat_sc_table = kzalloc(sizeof(struct hlist_head)
 					* ARRAY_SIZE(compat_sc_table), GFP_KERNEL);
-		if (!chan->compat_sc_table)
+		if (!container->compat_sc_table)
 			return -ENOMEM;
 	}
 
-	if (!chan->compat_sc_exit_table) {
+	if (!container->compat_sc_exit_table) {
 		/* create syscall table mapping compat syscall to events */
-		chan->compat_sc_exit_table = kzalloc(sizeof(struct lttng_event *)
+		container->compat_sc_exit_table = kzalloc(sizeof(struct hlist_head)
 					* ARRAY_SIZE(compat_sc_exit_table), GFP_KERNEL);
-		if (!chan->compat_sc_exit_table)
+		if (!container->compat_sc_exit_table)
 			return -ENOMEM;
 	}
 #endif
-	if (hlist_empty(&chan->sc_unknown)) {
+
+	{
 		const struct lttng_event_desc *desc =
 			&__event_desc___syscall_entry_unknown;
 		struct lttng_event *event;
@@ -1233,16 +1220,19 @@ int lttng_syscalls_register_event(struct lttng_event_enabler *event_enabler, voi
 		ev.instrumentation = LTTNG_KERNEL_SYSCALL;
 		ev.u.syscall.entryexit = LTTNG_KERNEL_SYSCALL_ENTRY;
 		ev.u.syscall.abi = LTTNG_KERNEL_SYSCALL_ABI_NATIVE;
-		event = _lttng_event_create(chan, &ev, filter, desc,
-					    ev.instrumentation);
-		WARN_ON_ONCE(!event);
+		event = _lttng_event_create(container, &ev, &event_enabler->key, filter,
+					desc, ev.instrumentation,
+					event_enabler->base.user_token);
 		if (IS_ERR(event)) {
-			return PTR_ERR(event);
+			if (PTR_ERR(event) != -EEXIST)
+				return PTR_ERR(event);
+			/* Skip if event is already found. */
+		} else {
+			hlist_add_head(&event->u.syscall.node, &container->sc_unknown);
 		}
-		hlist_add_head(&event->u.syscall.node, &chan->sc_unknown);
 	}
 
-	if (hlist_empty(&chan->sc_compat_unknown)) {
+	{
 		const struct lttng_event_desc *desc =
 			&__event_desc___compat_syscall_entry_unknown;
 		struct lttng_event *event;
@@ -1253,16 +1243,19 @@ int lttng_syscalls_register_event(struct lttng_event_enabler *event_enabler, voi
 		ev.instrumentation = LTTNG_KERNEL_SYSCALL;
 		ev.u.syscall.entryexit = LTTNG_KERNEL_SYSCALL_ENTRY;
 		ev.u.syscall.abi = LTTNG_KERNEL_SYSCALL_ABI_COMPAT;
-		event = _lttng_event_create(chan, &ev, filter, desc,
-					    ev.instrumentation);
-		WARN_ON_ONCE(!event);
+		event = _lttng_event_create(container, &ev, &event_enabler->key, filter,
+					desc, ev.instrumentation,
+					event_enabler->base.user_token);
 		if (IS_ERR(event)) {
-			return PTR_ERR(event);
+			if (PTR_ERR(event) != -EEXIST)
+				return PTR_ERR(event);
+			/* Skip if event is already found. */
+		} else {
+			hlist_add_head(&event->u.syscall.node, &container->sc_compat_unknown);
 		}
-		hlist_add_head(&event->u.syscall.node, &chan->sc_compat_unknown);
 	}
 
-	if (hlist_empty(&chan->compat_sc_exit_unknown)) {
+	{
 		const struct lttng_event_desc *desc =
 			&__event_desc___compat_syscall_exit_unknown;
 		struct lttng_event *event;
@@ -1273,16 +1266,19 @@ int lttng_syscalls_register_event(struct lttng_event_enabler *event_enabler, voi
 		ev.instrumentation = LTTNG_KERNEL_SYSCALL;
 		ev.u.syscall.entryexit = LTTNG_KERNEL_SYSCALL_EXIT;
 		ev.u.syscall.abi = LTTNG_KERNEL_SYSCALL_ABI_COMPAT;
-		event = _lttng_event_create(chan, &ev, filter, desc,
-					    ev.instrumentation);
-		WARN_ON_ONCE(!event);
+		event = _lttng_event_create(container, &ev, &event_enabler->key,
+					filter, desc, ev.instrumentation,
+					event_enabler->base.user_token);
 		if (IS_ERR(event)) {
-			return PTR_ERR(event);
+			if (PTR_ERR(event) != -EEXIST)
+				return PTR_ERR(event);
+			/* Skip if event is already found. */
+		} else {
+			hlist_add_head(&event->u.syscall.node, &container->compat_sc_exit_unknown);
 		}
-		hlist_add_head(&event->u.syscall.node, &chan->compat_sc_exit_unknown);
 	}
 
-	if (hlist_empty(&chan->sc_exit_unknown)) {
+	{
 		const struct lttng_event_desc *desc =
 			&__event_desc___syscall_exit_unknown;
 		struct lttng_event *event;
@@ -1293,64 +1289,67 @@ int lttng_syscalls_register_event(struct lttng_event_enabler *event_enabler, voi
 		ev.instrumentation = LTTNG_KERNEL_SYSCALL;
 		ev.u.syscall.entryexit = LTTNG_KERNEL_SYSCALL_EXIT;
 		ev.u.syscall.abi = LTTNG_KERNEL_SYSCALL_ABI_NATIVE;
-		event = _lttng_event_create(chan, &ev, filter, desc,
-					    ev.instrumentation);
-		WARN_ON_ONCE(!event);
+		event = _lttng_event_create(container, &ev, &event_enabler->key, filter,
+					desc, ev.instrumentation,
+					event_enabler->base.user_token);
 		if (IS_ERR(event)) {
-			return PTR_ERR(event);
+			if (PTR_ERR(event) != -EEXIST)
+				return PTR_ERR(event);
+			/* Skip if event is already found. */
+		} else {
+			hlist_add_head(&event->u.syscall.node, &container->sc_exit_unknown);
 		}
-		hlist_add_head(&event->u.syscall.node, &chan->sc_exit_unknown);
 	}
 
 	ret = lttng_create_syscall_event_if_missing(sc_table, ARRAY_SIZE(sc_table),
-			chan->sc_table, event_enabler, filter, SC_TYPE_ENTRY);
+			container->sc_table, event_enabler, filter, SC_TYPE_ENTRY);
 	if (ret)
 		return ret;
 	ret = lttng_create_syscall_event_if_missing(sc_exit_table, ARRAY_SIZE(sc_exit_table),
-			chan->sc_exit_table, event_enabler, filter, SC_TYPE_EXIT);
+			container->sc_exit_table, event_enabler, filter, SC_TYPE_EXIT);
 	if (ret)
 		return ret;
 
 #ifdef CONFIG_COMPAT
 	ret = lttng_create_syscall_event_if_missing(compat_sc_table, ARRAY_SIZE(compat_sc_table),
-			chan->compat_sc_table, event_enabler, filter,
+			container->compat_sc_table, event_enabler, filter,
 			SC_TYPE_COMPAT_ENTRY);
 	if (ret)
 		return ret;
 	ret = lttng_create_syscall_event_if_missing(compat_sc_exit_table, ARRAY_SIZE(compat_sc_exit_table),
-			chan->compat_sc_exit_table, event_enabler, filter,
+			container->compat_sc_exit_table, event_enabler, filter,
 			SC_TYPE_COMPAT_EXIT);
 	if (ret)
 		return ret;
 #endif
 
-	if (!chan->sc_filter) {
-		chan->sc_filter = kzalloc(sizeof(struct lttng_syscall_filter),
+	if (!container->sc_filter) {
+		container->sc_filter = kzalloc(sizeof(struct lttng_syscall_filter),
 				GFP_KERNEL);
-		if (!chan->sc_filter)
+		if (!container->sc_filter)
 			return -ENOMEM;
 	}
 
-	if (!chan->sys_enter_registered) {
+	if (!container->sys_enter_registered) {
 		ret = lttng_wrapper_tracepoint_probe_register("sys_enter",
-				(void *) syscall_entry_event_probe, chan);
+				(void *) syscall_entry_event_probe, container);
 		if (ret)
 			return ret;
-		chan->sys_enter_registered = 1;
+		container->sys_enter_registered = 1;
 	}
 	/*
 	 * We change the name of sys_exit tracepoint due to namespace
 	 * conflict with sys_exit syscall entry.
 	 */
-	if (!chan->sys_exit_registered) {
+	if (!container->sys_exit_registered) {
 		ret = lttng_wrapper_tracepoint_probe_register("sys_exit",
-				(void *) syscall_exit_event_probe, chan);
+				(void *) syscall_exit_event_probe, container);
 		if (ret) {
 			WARN_ON_ONCE(lttng_wrapper_tracepoint_probe_unregister("sys_enter",
-				(void *) syscall_entry_event_probe, chan));
+				(void *) syscall_entry_event_probe, container));
 			return ret;
 		}
-		chan->sys_exit_registered = 1;
+		container->sys_exit_registered = 1;
 	}
 	return ret;
 }
@@ -1572,8 +1571,8 @@ static int create_matching_event_notifiers(
 			continue;
 		}
 
-		if (!lttng_desc_match_enabler(desc,
-				lttng_event_notifier_enabler_as_enabler(event_notifier_enabler)))
+		if (lttng_desc_match_enabler(desc,
+				lttng_event_notifier_enabler_as_enabler(event_notifier_enabler)) <= 0)
 			continue;
 
 		/*
@@ -1628,7 +1627,6 @@ static int create_matching_event_notifiers(
 
 end:
 	return ret;
-
 }
 
 int lttng_syscals_create_matching_event_notifiers(
@@ -1729,38 +1727,38 @@ int lttng_syscalls_unregister_event_notifier_group(
 	return 0;
 }
 
-int lttng_syscalls_unregister_channel(struct lttng_channel *chan)
+int lttng_syscalls_unregister_event_container(struct lttng_event_container *container)
 {
 	int ret;
 
-	if (!chan->sc_table)
+	if (!container->sc_table)
 		return 0;
-	if (chan->sys_enter_registered) {
+	if (container->sys_enter_registered) {
 		ret = lttng_wrapper_tracepoint_probe_unregister("sys_enter",
-				(void *) syscall_entry_event_probe, chan);
+				(void *) syscall_entry_event_probe, container);
 		if (ret)
 			return ret;
-		chan->sys_enter_registered = 0;
+		container->sys_enter_registered = 0;
 	}
-	if (chan->sys_exit_registered) {
+	if (container->sys_exit_registered) {
 		ret = lttng_wrapper_tracepoint_probe_unregister("sys_exit",
-				(void *) syscall_exit_event_probe, chan);
+				(void *) syscall_exit_event_probe, container);
 		if (ret)
 			return ret;
-		chan->sys_exit_registered = 0;
+		container->sys_exit_registered = 0;
 	}
 	return 0;
 }
 
-int lttng_syscalls_destroy_event(struct lttng_channel *chan)
+int lttng_syscalls_destroy_event_container(struct lttng_event_container *container)
 {
-	kfree(chan->sc_table);
-	kfree(chan->sc_exit_table);
+	kfree(container->sc_table);
+	kfree(container->sc_exit_table);
 #ifdef CONFIG_COMPAT
-	kfree(chan->compat_sc_table);
-	kfree(chan->compat_sc_exit_table);
+	kfree(container->compat_sc_table);
+	kfree(container->compat_sc_exit_table);
 #endif
-	kfree(chan->sc_filter);
+	kfree(container->sc_filter);
 	return 0;
 }
 
@@ -1965,12 +1963,12 @@ end:
 }
 
 int lttng_syscall_filter_enable_event(
-		struct lttng_channel *channel,
+		struct lttng_event_container *container,
 		struct lttng_event *event)
 {
 	WARN_ON_ONCE(event->instrumentation != LTTNG_KERNEL_SYSCALL);
 
-	return lttng_syscall_filter_enable(channel->sc_filter,
+	return lttng_syscall_filter_enable(container->sc_filter,
 		event->desc->name, event->u.syscall.abi,
 		event->u.syscall.entryexit);
 }
@@ -2053,10 +2051,10 @@ int lttng_syscall_filter_disable_event_notifier(
 }
 
 int lttng_syscall_filter_disable_event(
-		struct lttng_channel *channel,
+		struct lttng_event_container *container,
 		struct lttng_event *event)
 {
-	return lttng_syscall_filter_disable(channel->sc_filter,
+	return lttng_syscall_filter_disable(container->sc_filter,
 		event->desc->name, event->u.syscall.abi,
 		event->u.syscall.entryexit);
 }
@@ -2175,7 +2173,7 @@ const struct file_operations lttng_syscall_list_fops = {
 /*
  * A syscall is enabled if it is traced for either entry or exit.
  */
-long lttng_channel_syscall_mask(struct lttng_channel *channel,
+long lttng_event_container_syscall_mask(struct lttng_event_container *container,
 		struct lttng_kernel_syscall_mask __user *usyscall_mask)
 {
 	uint32_t len, sc_tables_len, bitmask_len;
@@ -2195,14 +2193,14 @@ long lttng_channel_syscall_mask(struct lttng_channel *channel,
 	tmp_mask = kzalloc(bitmask_len, GFP_KERNEL);
 	if (!tmp_mask)
 		return -ENOMEM;
-	filter = channel->sc_filter;
+	filter = container->sc_filter;
 
 	for (bit = 0; bit < ARRAY_SIZE(sc_table); bit++) {
 		char state;
 
-		if (channel->sc_table) {
-			if (!(READ_ONCE(channel->syscall_all_entry)
-					|| READ_ONCE(channel->syscall_all_exit)) && filter)
+		if (container->sc_table) {
+			if (!(READ_ONCE(container->syscall_all_entry)
+					|| READ_ONCE(container->syscall_all_exit)) && filter)
 				state = test_bit(bit, filter->sc_entry)
 					|| test_bit(bit, filter->sc_exit);
 			else
@@ -2215,9 +2213,9 @@ long lttng_channel_syscall_mask(struct lttng_channel *channel,
 	for (; bit < sc_tables_len; bit++) {
 		char state;
 
-		if (channel->compat_sc_table) {
-			if (!(READ_ONCE(channel->syscall_all_entry)
-					|| READ_ONCE(channel->syscall_all_exit)) && filter)
+		if (container->compat_sc_table) {
+			if (!(READ_ONCE(container->syscall_all_entry)
+					|| READ_ONCE(container->syscall_all_exit)) && filter)
 				state = test_bit(bit - ARRAY_SIZE(sc_table),
 						filter->sc_compat_entry)
 					|| test_bit(bit - ARRAY_SIZE(sc_table),
